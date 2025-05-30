@@ -1,0 +1,11 @@
+pe\edu\util\Conexion.class
+com\mycompany\swad_20251_crud_login_maven\resources\JakartaEE10Resource.class
+pe\edu\controller\Autentica.class
+pe\edu\dao\ProductoDao.class
+pe\edu\dao\UsuarioDao.class
+pe\edu\model\Usuario.class
+com\mycompany\swad_20251_crud_login_maven\JakartaRestConfiguration.class
+pe\edu\dao\DaoCrud.class
+pe\edu\entity\Producto.class
+pe\edu\entity\Usuario.class
+pe\edu\controller\UsuarioController.class
