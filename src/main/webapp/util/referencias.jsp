@@ -7,6 +7,8 @@ crossorigin="anonymous"></script>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@200..700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.datatables.net/2.3.1/css/dataTables.dataTables.min.css"/>
-
-
+<%-- util/referencias.jsp --%>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+<%-- Opcional: Si usas DataTables en otras páginas, inclúyelo aquí --%
+<%-- Scripts van al final del body en los JSPs que los usan, pero aquí puedes tener las referencias --%>
 <link rel="stylesheet" href="estilos/principal.css">

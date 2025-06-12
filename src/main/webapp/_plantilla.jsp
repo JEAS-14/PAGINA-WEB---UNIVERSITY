@@ -1,32 +1,24 @@
-<%@page contentType="text/html" pageEncoding="UTF-8"%>
-<%@page import="java.util.LinkedList, pe.edu.model.Usuario" %>
+<%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <!DOCTYPE html>
 <html>
-    <head>
-        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-        <%@include file="referencias.jsp" %>
+<head>
+  <title>Plataforma</title>
+  <link href="estilos/bootstrap.min.css" rel="stylesheet"/>
+  <link href="estilos/datatables.min.css" rel="stylesheet"/>
+  <script src="estilos/jquery-3.7.1.min.js"></script>
+  <script src="estilos/datatables.min.js"></script>
+</head>
+<body>
+  <div class="container-fluid">
+    <div class="row">
+      <!-- Sidebar -->
+      <jsp:include page="menu.jsp" />
 
-        <title>JSP Page</title>        
-
-    </head>
-    <jsp:useBean id="users" class="pe.edu.model.Usuario" scope="session"></jsp:useBean>
-        <body>            
-            <div class="container-fluid">
-                <div class="row flex-nowrap">
-                    <!-- menu -->
-                <%@include file="menu.jsp" %>
-                <div class="col py-3">
-                    <!-- contenido -->
-                    
-                </div>
-            </div>
-        </div>
-    </body>
+      <!-- Contenido dinámico -->
+      <div class="col-md-10 mt-3">
+        <jsp:include page="<%= request.getAttribute(\"contenido\") %>" />
+      </div>
+    </div>
+  </div>
+</body>
 </html>
-
-<script src="https://code.jquery.com/jquery-3.7.1.js"></script>
-<script src="https://cdn.datatables.net/2.3.1/js/dataTables.js"></script>
-
-<script type="text/javascript">
-    let table = new DataTable('#myTable');
-</script>
