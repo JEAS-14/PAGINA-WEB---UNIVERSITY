@@ -4,7 +4,6 @@ pe\edu\entity\Curso.class
 pe\edu\entity\Inscripcion.class
 pe\edu\entity\Facultad.class
 pe\edu\model\curso.class
-Profesor\Packages\HomeController.class
 pe\edu\controller\NotaController.class
 pe\edu\entity\Profesor.class
 Profesor\Packages\Home.class
