@@ -8,7 +8,6 @@ J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MV
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\edu\entity\Curso.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\edu\entity\Clase.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\edu\entity\Alumno.java
-J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\Profesor\Packages\Home.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\universidad\util\Conexion.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\edu\model\carrera.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\edu\model\curso.java
@@ -24,7 +23,6 @@ J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MV
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\edu\dao\ProfesorDao.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\universidad\util\MostrarImagenServlet.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\edu\controller\InscripcionController.java
-J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\Profesor\Packages\HomeDaoProf.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\com\edu\pe\login\LoginServlet.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\edu\dao\ClaseDao.java
 J:\Universidad\7Mo Ciclo\Soluciones Web\Semana 10\SWAD_20251_CRUD_Login_Maven_MVC_DAO\SWAD_20251_CRUD_Login_Maven_MVC\src\main\java\pe\edu\entity\Profesor.java

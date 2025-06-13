@@ -6,7 +6,6 @@ pe\edu\entity\Facultad.class
 pe\edu\model\curso.class
 pe\edu\controller\NotaController.class
 pe\edu\entity\Profesor.class
-Profesor\Packages\Home.class
 pe\universidad\util\Conexion.class
 pe\edu\controller\AlumnoController.class
 pe\edu\dao\NotaDao.class
@@ -36,7 +35,6 @@ pe\edu\model\alumno.class
 pe\edu\model\carrera.class
 pe\edu\model\clase.class
 pe\edu\dao\FacultadDao.class
-Profesor\Packages\HomeDaoProf.class
 com\edu\pe\login\LoginServlet.class
 com\mycompany\universidad\sw\resources\JakartaEE10Resource.class
 pe\edu\controller\FacultadController.class

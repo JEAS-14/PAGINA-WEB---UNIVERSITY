@@ -652,20 +652,20 @@
             <div class="sidebar">
                 <ul>
                     <li><a href="home_profesor.jsp">Inicio</a></li>
-                    <li><a href="facultad_profesor.jsp">Facultades</a</li>
+                    <li><a href="facultad_profesor.jsp">Facultades</a></li>
                     <li><a href="carreras_profesor.jsp">Carreras</a></li>
-                    <li><a href="cursos_profesor.jsp">Cursos</a</li>
-                    <li><a href="salones.jsp">Salones</a></li>
-                    <li><a href="horarios.jsp">Horarios</a></li>
-                    <li><a href="asistencia.jsp">Asistencia</a></li>
-                    <li><a href="mensaje.jsp">Mensajería</a</li>
-                    <li><a href="nota.jsp">Notas</a></li>
+                    <li><a href="cursos_profesor.jsp">Cursos</a></li>
+                    <li><a href="salones_profesor.jsp">Salones</a></li>
+                    <li><a href="horarios_profesor.jsp">Horarios</a></li>
+                    <li><a href="asistencia_profesor.jsp">Asistencia</a></li>
+                    <li><a href="mensaje_profesor.jsp">Mensajería</a></li>
+                    <li><a href="nota_profesor.jsp">Notas</a></li>
                 </ul>
             </div>
 
             <div class="main-content">
                 <div class="welcome-section">
-                    <h1>Dashboard del Profesor</h1>
+                    <h1>Datos de Usted</h1>
                     <p>Bienvenido a su panel de control. Aquí puede ver un resumen de sus actividades y estadísticas.</p>
                 </div>
 
