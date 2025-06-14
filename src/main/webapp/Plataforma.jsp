@@ -33,7 +33,6 @@
         </style>
     </head>
     <body>
-        <!-- Modal de error -->
         <div class="modal fade" id="loginErrorModal" tabindex="-1" aria-labelledby="loginErrorModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
@@ -59,10 +58,6 @@
                     const loginErrorModal = new bootstrap.Modal(document.getElementById('loginErrorModal'));
                     loginErrorMessage.textContent = error;
                     loginErrorModal.show();
-                    // Limpiar el atributo de la petición para que no se muestre en futuras cargas
-                    // (Esto solo funciona si no hay redirecciones intermedias que conserven la petición)
-                    // Una mejor manera es limpiar la sesión en la carga inicial (ver otra opción).
-                    // <% request.removeAttribute("error"); %>
                 }
             });
         </script>
@@ -128,9 +123,10 @@
                             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="usuarioDropdown">
                                 <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#alumnoModal">Alumno</a></li>
                                 <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#profesorModal">Profesor</a></li>
+                                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#apoderadoModal">Apoderado</a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#adminModal">Administrador</a></li>
-                                <li><hr class="dropdown-divider"></li>                     
+                                <li><hr class="dropdown-divider"></li>                           
                             </ul>
                         </li>
                     </ul>
@@ -138,13 +134,11 @@
             </div>
         </nav>
         <div class="position-relative">
-            <!-- Texto superpuesto fijo -->
             <div class="position-absolute top-50 start-50 translate-middle text-center text-white px-4 py-3 rounded fade-in"
                  style="z-index: 10; background-color: rgba(0, 0, 0, 0.5);">
                 <h1 class="display-4 fw-bold">Bienvenido al Portal de la Universidad UGIC</h1>
             </div>
 
-            <!-- Carrusel de fondo -->
             <div id="miCarrusel" class="carousel slide" data-bs-ride="carousel">
                 <div class="carousel-inner">
                     <div class="carousel-item active">
@@ -184,10 +178,8 @@
             <p style="margin-left: 50px;">NUESTRA VISIÓN Y MISIÓN</p>
         </div>
 
-        <!-- Contenedor de Misión y Visión -->
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin: 40px auto; padding: 0 60px; gap: 50px; max-width: 1200px;">
 
-            <!-- Misión -->
             <div style="width: 50%;">
                 <h2 style="font-size: 24px; color: darkred; margin-bottom: 10px;">Misión</h2>
                 <div style="border: 2px solid darkred; border-radius: 10px; padding: 20px; font-size: 16px; background-color: #fff;">
@@ -195,7 +187,6 @@
                 </div>
             </div>
 
-            <!-- Visión -->
             <div style="width: 50%;">
                 <h2 style="font-size: 24px; color: darkred; margin-bottom: 10px;">Visión</h2>
                 <div style="border: 2px solid darkred; border-radius: 10px; padding: 20px; font-size: 16px; background-color: #fff;">
@@ -203,31 +194,25 @@
                 </div>
             </div>
         </div>
-        <!-- Nuestros Valores -->
         <div style="margin: 60px auto 40px; padding: 0 60px; max-width: 1200px;">
             <h2 style="font-size: 36px; font-family: 'Arial Black', sans-serif; color: black; margin-bottom: 30px;">NUESTROS VALORES</h2>
             <div style="display: flex; flex-wrap: wrap; gap: 30px;">
-                <!-- Valor 1 -->
                 <div style="flex: 1 1 300px; border: 2px solid darkred; border-radius: 10px; padding: 20px; background-color: #fff;">
                     <h3 style="color: darkred; margin-bottom: 10px;">Excelencia Académica</h3>
                     <p>Nos esforzamos por alcanzar y mantener altos estándares en enseñanza, investigación y gestión institucional.</p>
                 </div>
-                <!-- Valor 2 -->
                 <div style="flex: 1 1 300px; border: 2px solid darkred; border-radius: 10px; padding: 20px; background-color: #fff;">
                     <h3 style="color: darkred; margin-bottom: 10px;">Innovación</h3>
                     <p>Promovemos la creatividad, el emprendimiento y la incorporación de tecnologías que transforman la sociedad.</p>
                 </div>
-                <!-- Valor 3 -->
                 <div style="flex: 1 1 300px; border: 2px solid darkred; border-radius: 10px; padding: 20px; background-color: #fff;">
                     <h3 style="color: darkred; margin-bottom: 10px;">Ética</h3>
                     <p>Actuamos con integridad, transparencia y responsabilidad en todos nuestros procesos y relaciones.</p>
                 </div>
-                <!-- Valor 4 -->
                 <div style="flex: 1 1 300px; border: 2px solid darkred; border-radius: 10px; padding: 20px; background-color: #fff;">
                     <h3 style="color: darkred; margin-bottom: 10px;">Compromiso Social</h3>
                     <p>Trabajamos con y para nuestras comunidades, generando impacto real y sostenible.</p>
                 </div>
-                <!-- Valor 5 -->
                 <div style="flex: 1 1 300px; border: 2px solid darkred; border-radius: 10px; padding: 20px; background-color: #fff;">
                     <h3 style="color: darkred; margin-bottom: 10px;">Diversidad e Inclusión</h3>
                     <p>Valoramos las diferencias como fuente de crecimiento, promoviendo un entorno respetuoso y equitativo.</p>
@@ -235,22 +220,18 @@
             </div>
         </div>
 
-        <!-- Título: Nuestra Historia -->
         <div style="background-color: darkred; color: white; font-size: 60px; font-family: 'Arial Black', sans-serif; padding: 25px;">
             <p style="margin-left: 50px;">NUESTRA HISTORIA</p>
         </div>
 
-        <!-- Contenido principal -->
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin: 40px auto; padding: 0 60px; gap: 50px; max-width: 1200px;">
 
-            <!-- Texto -->
             <div style="width: 50%; font-size: 18px;">
                 <p>
                     UGIC fue fundada en el año 2010 como una iniciativa académica destinada a cubrir las nuevas demandas del mercado laboral en sectores emergentes. Con un enfoque vanguardista, la universidad ha crecido sostenidamente, ampliando su oferta educativa, modernizando su infraestructura y fortaleciendo alianzas estratégicas con instituciones nacionales e internacionales. Hoy, UGIC es un referente en educación superior centrada en la innovación y el impacto social.
                 </p>
             </div>
 
-            <!-- Collage de imágenes -->
             <div style="width: 50%; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
                 <img src="img/universidad1.jpg" alt="Foto 1" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px;">
                 <img src="img/universidad2.jpg" alt="Foto 2" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px;">
@@ -258,12 +239,10 @@
             </div>
 
         </div>
-        <!-- Título: Autoridades -->
         <div style="background-color: black; color: white; font-size: 60px; font-family: 'Arial Black', sans-serif; padding: 25px;">
             <p style="margin-left: 50px;">AUTORIDADES</p>
         </div>
 
-        <!-- Lista de autoridades -->
         <div style="max-width: 1000px; margin: 40px auto; padding: 0 60px;">
             <ul style="list-style: none; padding: 0; font-size: 18px; line-height: 1.8;">
 
@@ -373,6 +352,43 @@
             </div>
         </div>
 
+        <div class="modal fade" id="apoderadoModal" tabindex="-1" aria-labelledby="apoderadoModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-warning text-dark"> <%-- Cambié a bg-warning para un color diferente, puedes ajustar --%>
+                        <h5 class="modal-title" id="apoderadoModalLabel"><i class="fas fa-user-friends me-2"></i> Iniciar Sesión Apoderado</h5>
+                        <button type="button" class="btn-close btn-close-dark" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form action="loginServlet" method="post">
+                            <input type="hidden" name="userType" value="apoderado">
+                            <div class="mb-3">
+                                <label for="apoderadoUsernameModal" class="form-label"><i class="fas fa-user me-2"></i> Usuario</label>
+                                <input type="text" class="form-control" id="apoderadoUsernameInput" name="username" placeholder="Ingrese su usuario de apoderado" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="apoderadoPasswordModal" class="form-label"><i class="fas fa-lock me-2"></i> Contraseña</label>
+                                <input type="password" class="form-control" id="apoderadoPasswordInput" name="password" placeholder="Ingrese su contraseña" required>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input type="checkbox" class="form-check-input" id="rememberApoderado">
+                                <label class="form-check-label" for="rememberApoderado">Recordarme</label>
+                            </div>
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-warning text-dark"><i class="fas fa-sign-in-alt me-2"></i> Iniciar Sesión</button>
+                            </div>
+                            <div class="mt-3 text-center">
+                                <a href="#">¿Olvidó su contraseña?</a> 
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal"><i class="fas fa-times me-2"></i> Cerrar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="modal fade" id="adminModal" tabindex="-1" aria-labelledby="adminModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
@@ -409,7 +425,6 @@
                 </div>
             </div>
         </div>
-        <!-- Footer / Pie de página -->
         <footer style="background-color: #222; color: white; text-align: center; padding: 30px 20px; font-size: 16px; margin-top: 60px;">
             <p>&copy; 2025 Universidad Global de Innovación y Conocimiento (UGIC). Todos los derechos reservados.</p>
             <p>Contacto: info@ugic.edu | Tel: +123 456 7890</p>

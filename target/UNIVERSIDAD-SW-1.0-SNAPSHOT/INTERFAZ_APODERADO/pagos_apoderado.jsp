@@ -31,7 +31,7 @@
         session.setAttribute("email", "roberto.sanchez@gmail.com"); // Email de un apoderado que exista en tu BD (ID 1 en bd_sw)
         session.setAttribute("rol", "apoderado");
         session.setAttribute("id_apoderado", 1);    // ID del apoderado en tu BD (ej: Roberto Carlos Sánchez Díaz)
-        System.out.println("DEBUG (cursos_apoderado): Sesión forzada para prueba.");
+        System.out.println("DEBUG (pagos_apoderado): Sesión forzada para prueba.");
     }
     // ====================================================================
 
@@ -39,14 +39,14 @@
     String emailSesion = (String) session.getAttribute("email");
     String rolUsuario = (String) session.getAttribute("rol");
     Object idApoderadoObj = session.getAttribute("id_apoderado");
-
+    
     // --- Variables para los datos del apoderado y su hijo ---
     int idApoderado = -1; 
     String nombreApoderado = "Apoderado Desconocido";
     String nombreHijo = "Hijo No Asignado";
     int idHijo = -1;
 
-    List<Map<String, String>> cursosHijoDetalleList = new ArrayList<>();
+    List<Map<String, String>> pagosHijoList = new ArrayList<>();
 
     Connection conn = null;    
     PreparedStatement pstmt = null;
@@ -56,15 +56,15 @@
     try {
         // --- 1. Validar y obtener ID del Apoderado de Sesión ---
         if (emailSesion == null || !"apoderado".equalsIgnoreCase(rolUsuario) || idApoderadoObj == null) {
-            System.out.println("DEBUG (cursos_apoderado): Sesión inválida o rol incorrecto. Redirigiendo a login.");
+            System.out.println("DEBUG (pagos_apoderado): Sesión inválida o rol incorrecto. Redirigiendo a login.");
             response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/login.jsp"); // Ajusta la ruta si es diferente
             return;
         }
         try {
             idApoderado = Integer.parseInt(String.valueOf(idApoderadoObj));
-            System.out.println("DEBUG (cursos_apoderado): ID Apoderado de sesión: " + idApoderado);
+            System.out.println("DEBUG (pagos_apoderado): ID Apoderado de sesión: " + idApoderado);
         } catch (NumberFormatException e) {
-            System.err.println("ERROR (cursos_apoderado): ID de apoderado en sesión no es un número válido. " + e.getMessage());
+            System.err.println("ERROR (pagos_apoderado): ID de apoderado en sesión no es un número válido. " + e.getMessage());
             response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/login.jsp");
             return;
         }
@@ -75,7 +75,7 @@
         if (conn == null || conn.isClosed()) {
             throw new SQLException("No se pudo establecer conexión a la base de datos.");
         }
-        System.out.println("DEBUG (cursos_apoderado): Conexión a BD establecida.");
+        System.out.println("DEBUG (pagos_apoderado): Conexión a BD establecida.");
 
         // --- 3. Obtener Nombre del Apoderado para el encabezado ---
         PreparedStatement pstmtApoderado = null;
@@ -120,72 +120,58 @@
                 }
             } else {
                 globalErrorMessage = "No se encontró un hijo asociado a este apoderado.";
-                System.err.println("ERROR (cursos_apoderado): No se encontró hijo para apoderado ID: " + idApoderado);
+                System.err.println("ERROR (pagos_apoderado): No se encontró hijo para apoderado ID: " + idApoderado);
             }
         } finally {
             cerrarRecursos(rsHijo, pstmtHijo);
         }
 
-        // --- 5. Obtener Cursos Detallados del Hijo (si hay un hijo asignado) ---
+        // --- 5. Obtener Historial de Pagos del Hijo (si hay un hijo asignado) ---
         if (idHijo != -1) {
-            String sqlCursosDetalle = "SELECT cu.nombre_curso, cu.codigo_curso, cu.creditos, "
-                                    + "cl.seccion, cl.ciclo, cl.semestre, cl.año_academico, "
-                                    + "p.nombre AS nombre_profesor, p.apellido_paterno AS apPaterno_profesor, "
-                                    + "h.dia_semana, h.hora_inicio, h.hora_fin, h.aula, "
-                                    + "n.nota_final, n.estado AS estado_nota "
-                                    + "FROM inscripciones i "
-                                    + "JOIN clases cl ON i.id_clase = cl.id_clase "
-                                    + "JOIN cursos cu ON cl.id_curso = cu.id_curso "
-                                    + "JOIN profesores p ON cl.id_profesor = p.id_profesor "
-                                    + "JOIN horarios h ON cl.id_horario = h.id_horario "
-                                    + "LEFT JOIN notas n ON i.id_inscripcion = n.id_inscripcion " // LEFT JOIN para incluir cursos sin notas aún
-                                    + "WHERE i.id_alumno = ? AND i.estado = 'inscrito' "
-                                    + "ORDER BY cl.año_academico DESC, cl.semestre DESC, cu.nombre_curso";
-
-            pstmt = conn.prepareStatement(sqlCursosDetalle);
+            String sqlPagos = "SELECT id_pago, fecha_pago, fecha_vencimiento, concepto, monto, metodo_pago, referencia, estado "
+                            + "FROM pagos "
+                            + "WHERE id_alumno = ? "
+                            + "ORDER BY fecha_vencimiento DESC, fecha_pago DESC";
+            
+            pstmt = conn.prepareStatement(sqlPagos);
             pstmt.setInt(1, idHijo);
             rs = pstmt.executeQuery();
 
             while(rs.next()) {
-                Map<String, String> cursoDetalle = new HashMap<>();
-                cursoDetalle.put("nombre_curso", rs.getString("nombre_curso"));
-                cursoDetalle.put("codigo_curso", rs.getString("codigo_curso"));
-                cursoDetalle.put("creditos", String.valueOf(rs.getInt("creditos")));
-                cursoDetalle.put("seccion", rs.getString("seccion"));
-                cursoDetalle.put("ciclo", rs.getString("ciclo"));
-                cursoDetalle.put("semestre", rs.getString("semestre"));
-                cursoDetalle.put("anio_academico", String.valueOf(rs.getInt("año_academico")));
-
-                String nombreProfesor = rs.getString("nombre_profesor") + " " + rs.getString("apPaterno_profesor");
-                cursoDetalle.put("profesor", nombreProfesor);
-
-                cursoDetalle.put("dia_semana", rs.getString("dia_semana"));
-                cursoDetalle.put("hora_inicio", rs.getString("hora_inicio").substring(0, 5)); // Formato HH:MM
-                cursoDetalle.put("hora_fin", rs.getString("hora_fin").substring(0, 5)); // Formato HH:MM
-                cursoDetalle.put("aula", rs.getString("aula"));
-
-                // Notas y estado
-                double notaFinal = rs.getDouble("nota_final");
-                if (rs.wasNull()) { // Check if the value was SQL NULL
-                    cursoDetalle.put("nota_final", "N/A");
-                    cursoDetalle.put("estado_nota", "PENDIENTE");
-                } else {
-                    cursoDetalle.put("nota_final", String.format("%.2f", notaFinal));
-                    cursoDetalle.put("estado_nota", rs.getString("estado_nota").toUpperCase());
-                }
-
-                cursosHijoDetalleList.add(cursoDetalle);
+                Map<String, String> pagoRecord = new HashMap<>();
+                pagoRecord.put("id_pago", String.valueOf(rs.getInt("id_pago")));
+                
+                // Corrected handling for fecha_pago
+                java.sql.Date fechaPagoSql = rs.getDate("fecha_pago");
+                pagoRecord.put("fecha_pago", fechaPagoSql != null ? fechaPagoSql.toString() : "N/A"); 
+                
+                // Corrected handling for fecha_vencimiento
+                java.sql.Date fechaVencimientoSql = rs.getDate("fecha_vencimiento");
+                pagoRecord.put("fecha_vencimiento", fechaVencimientoSql != null ? fechaVencimientoSql.toString() : "N/A"); 
+                
+                pagoRecord.put("concepto", rs.getString("concepto"));
+                pagoRecord.put("monto", String.format("%.2f", rs.getDouble("monto")));
+                
+                String metodoPago = rs.getString("metodo_pago");
+                pagoRecord.put("metodo_pago", metodoPago != null && !metodoPago.isEmpty() ? metodoPago : "N/A"); 
+                
+                String referencia = rs.getString("referencia");
+                pagoRecord.put("referencia", referencia != null && !referencia.isEmpty() ? referencia : "N/A"); 
+                
+                pagoRecord.put("estado", rs.getString("estado").toUpperCase());
+                
+                pagosHijoList.add(pagoRecord);
             }
-            System.out.println("DEBUG (cursos_apoderado): Cursos detallados de hijo listados: " + cursosHijoDetalleList.size());
+            System.out.println("DEBUG (pagos_apoderado): Registros de pagos de hijo listados: " + pagosHijoList.size());
         }
 
     } catch (SQLException e) {
         globalErrorMessage = "Error de base de datos: " + e.getMessage();
-        System.err.println("ERROR (cursos_apoderado) SQL Principal: " + globalErrorMessage);
+        System.err.println("ERROR (pagos_apoderado) SQL Principal: " + globalErrorMessage);
         e.printStackTrace();
     } catch (ClassNotFoundException e) {
         globalErrorMessage = "Error de configuración: Driver JDBC no encontrado.";
-        System.err.println("ERROR (cursos_apoderado) DRIVER Principal: " + globalErrorMessage);
+        System.err.println("ERROR (pagos_apoderado) DRIVER Principal: " + globalErrorMessage);
         e.printStackTrace();
     } finally {
         cerrarRecursos(rs, pstmt);
@@ -204,7 +190,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cursos de mi Hijo | Dashboard Apoderado | UNI</title>
+    <title>Pagos y Mensualidades | Dashboard Apoderado | UNI</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
@@ -367,7 +353,7 @@
         }
 
         /* Badge for status */
-        .badge-nota {
+        .badge-pago {
             padding: 0.35em 0.65em;
             font-size: 0.75em;
             font-weight: 700;
@@ -378,9 +364,25 @@
             vertical-align: baseline;
             border-radius: 0.375rem;
         }
-        .bg-success { background-color: #198754 !important; } /* Aprobado */
-        .bg-danger { background-color: #dc3545 !important; } /* Desaprobado */
+        .bg-success { background-color: #198754 !important; } /* Pagado */
         .bg-warning { background-color: #ffc107 !important; color: #000 !important;} /* Pendiente */
+        .bg-danger { background-color: #dc3545 !important; } /* Vencido */
+
+        /* Botón de Pagar */
+        .btn-pay {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 0.4rem 0.8rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            font-size: 0.85rem;
+        }
+
+        .btn-pay:hover {
+            background-color: var(--accent-color);
+        }
 
         /* Mensajes de error/info */
         .alert-message {
@@ -454,18 +456,18 @@
         <div class="sidebar">
             <ul>
                 <li><a href="home_apoderado.jsp">Inicio</a></li>
-                <li><a href="cursos_apoderado.jsp" class="active">Cursos de mi hijo</a></li>
+                <li><a href="cursos_apoderado.jsp">Cursos de mi hijo</a></li>
                 <li><a href="asistencia_apoderado.jsp">Asistencia de mi hijo</a></li>
                 <li><a href="notas_apoderado.jsp">Notas de mi hijo</a></li>
-                <li><a href="pagos_apoderado.jsp">Pagos y Mensualidades</a></li>
+                <li><a href="pagos_apoderado.jsp" class="active">Pagos y Mensualidades</a></li>
                 <li><a href="mensajes_apoderado.jsp">Mensajes</a></li>
             </ul>
         </div>
 
         <div class="main-content">
             <div class="welcome-section">
-                <h1>Cursos Inscritos de <%= nombreHijo %></h1>
-                <p>Aquí puede ver el detalle de los cursos en los que su hijo/a está matriculado, incluyendo profesor, horario y su última nota final.</p>
+                <h1>Pagos y Mensualidades de <%= nombreHijo %></h1>
+                <p>Aquí puede ver el historial de todos los pagos de su hijo/a, así como las mensualidades pendientes o vencidas.</p>
             </div>
 
             <% if (globalErrorMessage != null) { %>
@@ -475,58 +477,59 @@
             <% } %>
 
             <div class="content-section mb-4">
-                <h3 class="section-title">Detalle de Cursos</h3>
+                <h3 class="section-title">Historial de Pagos</h3>
                 <div class="table-responsive">
-                    <% if (!cursosHijoDetalleList.isEmpty()) { %>
+                    <% if (!pagosHijoList.isEmpty()) { %>
                     <table class="table table-hover">
                         <thead>
                             <tr>
-                                <th>Curso</th>
-                                <th>Código</th>
-                                <th>Créditos</th>
-                                <th>Sección</th>
-                                <th>Ciclo</th>
-                                <th>Semestre</th>
-                                <th>Profesor</th>
-                                <th>Día</th>
-                                <th>Hora</th>
-                                <th>Aula</th>
-                                <th>Nota Final</th>
-                                <th>Estado Nota</th>
+                                <th>Concepto</th>
+                                <th>Monto</th>
+                                <th>Fecha Vencimiento</th>
+                                <th>Fecha Pago</th>
+                                <th>Método</th>
+                                <th>Referencia</th>
+                                <th>Estado</th>
+                                <th>Acción</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <% for (Map<String, String> curso : cursosHijoDetalleList) {%>
+                            <% for (Map<String, String> pago : pagosHijoList) {%>
                             <tr>
-                                <td><%= curso.get("nombre_curso") %></td>
-                                <td><%= curso.get("codigo_curso") %></td>
-                                <td><%= curso.get("creditos") %></td>
-                                <td><%= curso.get("seccion") %></td>
-                                <td><%= curso.get("ciclo") %></td>
-                                <td><%= curso.get("semestre") %></td>
-                                <td><%= curso.get("profesor") %></td>
-                                <td><%= curso.get("dia_semana") %></td>
-                                <td><%= curso.get("hora_inicio") %> - <%= curso.get("hora_fin") %></td>
-                                <td><%= curso.get("aula") %></td>
-                                <td><%= curso.get("nota_final") %></td>
+                                <td><%= pago.get("concepto") %></td>
+                                <td>S/. <%= pago.get("monto") %></td>
+                                <td><%= pago.get("fecha_vencimiento") %></td>
+                                <td><%= pago.get("fecha_pago") %></td>
+                                <td><%= pago.get("metodo_pago") %></td>
+                                <td><%= pago.get("referencia") %></td>
                                 <td>
                                     <% 
-                                        String estadoNota = curso.get("estado_nota");
-                                        String badgeClass = "bg-warning"; // Default for PENDIENTE
-                                        if ("APROBADO".equalsIgnoreCase(estadoNota)) {
+                                        String estadoPago = pago.get("estado");
+                                        String badgeClass = "";
+                                        if ("PAGADO".equalsIgnoreCase(estadoPago)) {
                                             badgeClass = "bg-success";
-                                        } else if ("DESAPROBADO".equalsIgnoreCase(estadoNota)) {
+                                        } else if ("PENDIENTE".equalsIgnoreCase(estadoPago)) {
+                                            badgeClass = "bg-warning";
+                                        } else if ("VENCIDO".equalsIgnoreCase(estadoPago)) {
                                             badgeClass = "bg-danger";
                                         }
                                     %>
-                                    <span class="badge badge-nota <%= badgeClass %>"><%= estadoNota %></span>
+                                    <span class="badge badge-pago <%= badgeClass %>"><%= estadoPago %></span>
+                                </td>
+                                <td>
+                                    <% if ("PENDIENTE".equalsIgnoreCase(pago.get("estado")) || "VENCIDO".equalsIgnoreCase(pago.get("estado"))) { %>
+                                        <button onclick="alert('Se iniciará el proceso de pago para el concepto: <%= pago.get("concepto") %>. ID de Pago: <%= pago.get("id_pago") %>')"
+                                                class="btn-pay">Pagar Ahora</button>
+                                    <% } else { %>
+                                        <button class="btn-pay" disabled>Pagado</button>
+                                    <% } %>
                                 </td>
                             </tr>
                             <% } %>
                         </tbody>
                     </table>
                     <% } else { %>
-                    <p class="text-muted">Su hijo/a no tiene cursos inscritos actualmente.</p>
+                    <p class="text-muted">No hay registros de pagos disponibles para su hijo/a actualmente.</p>
                     <% } %>
                 </div>
             </div>
