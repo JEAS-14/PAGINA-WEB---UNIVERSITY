@@ -3,15 +3,14 @@
 <%@ page session="true" %>
 
 <%
-    // VALIDACIÓN DE SESIÓN: IMPRESCINDIBLE PARA LA SEGURIDAD
+    // --- VALIDACIÓN DE SESIÓN INICIAL ---
     String emailSesion = (String) session.getAttribute("email");
     String rolUsuario = (String) session.getAttribute("rol");
     Object idProfesorObj = session.getAttribute("id_profesor");
 
     // Redirigir si el usuario no está logueado, no es profesor o no tiene un ID de profesor en sesión
     if (emailSesion == null || !"profesor".equalsIgnoreCase(rolUsuario) || idProfesorObj == null) {
-        // Ajusta esta ruta si "login.jsp" no está en INTERFAZ_PROFESOR/
-        response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/login.jsp");
+        response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/login.jsp"); // Ajusta esta ruta si es diferente
         return;
     }
 
@@ -20,47 +19,42 @@
     if (idProfesorObj instanceof Integer) {
         idProfesor = (Integer) idProfesorObj;
     } else {
-        // Si el ID en sesión no es un Integer (ej. es un String por error), redirigir
-        System.out.println("DEBUG: id_profesor en sesión no es un Integer. Tipo: " + idProfesorObj.getClass().getName());
         response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/login.jsp");
         return;
     }
 
     String nombreProfesor = "";
-    String emailProfesor = emailSesion; // Variable usada en el HTML
+    String emailProfesor = emailSesion;
     String facultadProfesor = "No Asignada";
 
     // Variables para estadísticas
     int totalClases = 0;
     int totalAlumnos = 0; // Total de alumnos únicos inscritos en todas sus clases
-    int totalCapacidadClasesActivas = 0; // <-- AHORA SÍ SE CALCULARÁ
-    int totalAlumnosEnClasesActivas = 0; // <-- AHORA SÍ SE CALCULARÁ
+    int totalCapacidadClasesActivas = 0; // Para el cálculo del porcentaje de ocupación
+    int totalAlumnosEnClasesActivas = 0; // Para el cálculo del porcentaje de ocupación
 
-    // Variables para capturar mensajes de error de BD, para mostrar en la interfaz
     String globalDbErrorMessage = null;
 
-    // Declaraciones de objetos de BD que se usarán en el scriptlet inicial
     Conexion conUtil = null;
-    Connection conn = null;  // Conexión principal para toda la página
+    Connection conn = null;
     PreparedStatement pstmt = null;
     ResultSet rs = null;
 
     try {
         conUtil = new Conexion();
-        conn = conUtil.conecta(); // Obtener la conexión
+        conn = conUtil.conecta();
 
-        // Verificar si la conexión fue exitosa
         if (conn == null || conn.isClosed()) {
             throw new SQLException("No se pudo establecer conexión a la base de datos.");
         }
 
         // --- Obtener información detallada del profesor ---
-        String sqlProfesorInfo = "SELECT CONCAT(p.nombre, ' ', p.apellido_paterno, ' ', IFNULL(p.apellido_materno, '')) as nombre_completo, f.nombre_facultad as facultad "
+        String sqlProfesorInfo = "SELECT CONCAT(p.nombre, ' ', p.apellido_paterno, ' ', IFNULL(p.apellido_materno, '')) AS nombre_completo, f.nombre_facultad as facultad "
                                  + "FROM profesores p "
                                  + "LEFT JOIN facultades f ON p.id_facultad = f.id_facultad "
                                  + "WHERE p.id_profesor = ?";
         pstmt = conn.prepareStatement(sqlProfesorInfo);
-        pstmt.setInt(1, idProfesor); // Usar idProfesor
+        pstmt.setInt(1, idProfesor);
         rs = pstmt.executeQuery();
 
         if (rs.next()) {
@@ -72,7 +66,7 @@
         if (rs != null) { try { rs.close(); } catch (SQLException ignore) {} }
         if (pstmt != null) { try { pstmt.close(); } catch (SQLException ignore) {} }
 
-        // --- Obtener estadísticas de clases para el profesor (AHORA INCLUYENDO CAPACIDAD Y ALUMNOS ACTIVOS) ---
+        // --- Obtener estadísticas de clases para el profesor ---
         String sqlStats = "SELECT "
                           + "COUNT(DISTINCT cl.id_clase) as total_clases, "
                           + "COUNT(DISTINCT i.id_alumno) as total_alumnos_unicos, "
@@ -81,10 +75,10 @@
                           + "    (SELECT COUNT(*) FROM inscripciones sub_i WHERE sub_i.id_clase = cl.id_clase AND sub_i.estado = 'inscrito') "
                           + "    ELSE 0 END) as total_alumnos_en_clases_activas "
                           + "FROM clases cl "
-                          + "LEFT JOIN inscripciones i ON cl.id_clase = i.id_clase " /* Esta unión es para total_alumnos_unicos, no para sumar alumnos por clase */
+                          + "LEFT JOIN inscripciones i ON cl.id_clase = i.id_clase " 
                           + "WHERE cl.id_profesor = ?";
         pstmt = conn.prepareStatement(sqlStats);
-        pstmt.setInt(1, idProfesor); // Usar idProfesor
+        pstmt.setInt(1, idProfesor);
         rs = pstmt.executeQuery();
 
         if (rs.next()) {
@@ -173,7 +167,7 @@
             background-color: var(--primary-color);
             color: white;
             padding: 1.5rem 0;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
 
         .sidebar ul {
@@ -410,14 +404,14 @@
         <div class="sidebar">
             <ul>
                 <li><a href="home_profesor.jsp">Inicio</a></li>
-                    <li><a href="facultad_profesor.jsp">Facultades</a></li>
-                    <li><a href="carreras_profesor.jsp">Carreras</a></li>
-                    <li><a href="cursos_profesor.jsp">Cursos</a></li>
-                    <li><a href="salones_profesor.jsp">Salones</a></li>
-                    <li><a href="horarios_profesor.jsp">Horarios</a></li>
-                    <li><a href="asistencia_profesor.jsp">Asistencia</a></li>
-                    <li><a href="mensaje_profesor.jsp">Mensajería</a></li>
-                    <li><a href="nota_profesor.jsp">Notas</a></li>
+                <li><a href="facultad_profesor.jsp">Facultades</a></li>
+                <li><a href="carreras_profesor.jsp">Carreras</a></li>
+                <li><a href="cursos_profesor.jsp">Cursos</a></li>
+                <li><a href="salones_profesor.jsp" class="active">Clases</a></li>
+                <li><a href="horarios_profesor.jsp">Horarios</a></li>
+                <li><a href="asistencia.jsp">Asistencia</a></li>
+                <li><a href="mensaje.jsp">Mensajería</a></li>
+                <li><a href="nota.jsp">Notas</a></li>
             </ul>
         </div>
 
@@ -441,21 +435,10 @@
                     <div class="stat-number"><%= totalAlumnos %></div>
                     <div class="stat-label">Total Alumnos</div>
                 </div>
-                <%-- Botón "Solicitar agregar clase" se mueve al final de la página --%>
-                <%--
-                <div class="stat-card" style="border-top-color: #6f42c1;">
-                    <form action="solicitar_clase.jsp" method="post">
-                        <button type="submit" style="background-color:#6f42c1; color:white; padding: 1rem; border:none; border-radius:8px; cursor:pointer; font-size: 1rem;">
-                            ➕ Solicitar agregar clase
-                        </button>
-                    </form>
-                    <div class="stat-label" style="margin-top: 0.5rem;">Requiere aprobación del administrador</div>
-                </div>
-                --%>
                 <div class="stat-card" style="border-top-color: #fd7e14;">
                     <%
                         double porcentajeOcupacionGeneral = 0.0;
-                        if (totalCapacidadClasesActivas > 0) {
+                        if (totalCapacidadClasesActivas > 0) { // Asegurarse de que no dividimos por cero
                             porcentajeOcupacionGeneral = ((double)totalAlumnosEnClasesActivas / totalCapacidadClasesActivas) * 100;
                         }
                     %>
@@ -472,9 +455,6 @@
                 <h2>Listado de Clases - <%= nombreProfesor%></h2>
 
                 <%
-                    // La conexión 'conn' ya fue abierta al inicio del scriptlet principal.
-                    // Si hubo un error en la conexión inicial, 'conn' será null.
-                    
                     PreparedStatement pstmtClases = null;
                     ResultSet rsClases = null;
                     String classesLoadError = null; // Para errores específicos de esta tabla
@@ -546,7 +526,8 @@
                                 <%= rsClases.getString("dia_semana")%><br>
                                 <%= rsClases.getTime("hora_inicio")%> - <%= rsClases.getTime("hora_fin")%>
                             </td>
-                            <td><%= rsClases.getString("aula")%></td>
+                            <td>
+                                <%= rsClases.getString("aula") %> </td>
                             <td><%= alumnosInscritos%> / <%= capacidadMaxima%></td>
                             <td><span class="badge <%= badgeClass%>"><%= estadoClase.toUpperCase()%></span></td>
                             <td>
@@ -564,7 +545,7 @@
                             if (!hayClases) {
                         %>
                         <tr>
-                            <td colspan="6" class="no-data"> <%-- Colspan ajustado a 6 --%>
+                            <td colspan="7" class="no-data"> <%-- Colspan ajustado a 7 --%>
                                 📚 No tienes clases asignadas.
                             </td>
                         </tr>
