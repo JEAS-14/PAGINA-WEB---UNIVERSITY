@@ -651,15 +651,15 @@
         <div class="main-wrapper"> 
             <div class="sidebar">
                 <ul>
-                    <li><a href="home_profesor.jsp">Inicio</a></li>
-                    <li><a href="facultad_profesor.jsp">Facultades</a></li>
-                    <li><a href="carreras_profesor.jsp">Carreras</a></li>
-                    <li><a href="cursos_profesor.jsp">Cursos</a></li>
-                    <li><a href="salones_profesor.jsp">Salones</a></li>
-                    <li><a href="horarios_profesor.jsp">Horarios</a></li>
-                    <li><a href="asistencia_profesor.jsp">Asistencia</a></li>
-                    <li><a href="mensaje_profesor.jsp">Mensajería</a></li>
-                    <li><a href="nota_profesor.jsp">Notas</a></li>
+                    <li><a href="home_profesor.jsp" class="active">Inicio</a></li>
+                <li><a href="facultad_profesor.jsp">Facultades</a></li>
+                <li><a href="carreras_profesor.jsp">Carreras</a></li>
+                <li><a href="cursos_profesor.jsp">Cursos</a></li>
+                <li><a href="salones_profesor.jsp">Clases</a></li> 
+                <li><a href="horarios_profesor.jsp">Horarios</a></li> 
+                <li><a href="asistencia_profesor.jsp">Asistencia</a></li>
+                <li><a href="mensaje_profesor.jsp">Mensajería</a></li>
+                <li><a href="nota_profesor.jsp">Notas</a></li>
                 </ul>
             </div>
 
@@ -788,28 +788,28 @@
                             <i class="fas fa-clipboard-check"></i>
                             <h4>Registrar Asistencia</h4>
                             <p>Registre la asistencia de sus estudiantes para la sesión de hoy</p>
-                            <a href="registrar_asistencia.jsp" class="action-btn">Ir ahora</a>
+                            <a href="asistencia_profesor.jsp" class="action-btn">Ir ahora</a>
                         </div>
 
                         <div class="action-card">
                             <i class="fas fa-edit"></i>
                             <h4>Ingresar Notas</h4>
                             <p>Ingrese las calificaciones de la última evaluación</p>
-                            <a href="ingresar_notas.jsp" class="action-btn">Ir ahora</a>
+                            <a href="notas_profesor.jsp" class="action-btn">Ir ahora</a>
                         </div>
 
                         <div class="action-card">
                             <i class="fas fa-calendar-alt"></i>
                             <h4>Ver Horario</h4>
                             <p>Consulte su horario de clases para esta semana</p>
-                            <a href="horarios.jsp" class="action-btn">Ver horario</a>
+                            <a href="horarios_profesor.jsp" class="action-btn">Ver horario</a>
                         </div>
 
                         <div class="action-card">
                             <i class="fas fa-envelope"></i>
                             <h4>Mensajes</h4>
                             <p>Revise sus mensajes y comunicados importantes</p>
-                            <a href="mensajes.jsp" class="action-btn">Ver mensajes</a>
+                            <a href="mensaje_profesor.jsp" class="action-btn">Ver mensajes</a>
                         </div>
                     </div>
                 </div>

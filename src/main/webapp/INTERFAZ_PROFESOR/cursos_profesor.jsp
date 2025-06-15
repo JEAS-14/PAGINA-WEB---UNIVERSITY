@@ -487,11 +487,11 @@
                     <li><a href="facultad_profesor.jsp">Facultades</a></li>
                     <li><a href="carreras_profesor.jsp">Carreras</a></li>
                     <li><a href="cursos_profesor.jsp" class="active">Cursos</a></li>
-                    <li><a href="salones.jsp">Salones</a></li>
-                    <li><a href="horarios.jsp">Horarios</a></li>
-                    <li><a href="asistencia.jsp">Asistencia</a></li>
-                    <li><a href="mensaje.jsp">Mensajería</a></li>
-                    <li><a href="nota.jsp">Notas</a></li>
+                    <li><a href="salones_profesor.jsp">Clases</a></li> 
+                    <li><a href="horarios_profesor.jsp">Horarios</a></li> 
+                    <li><a href="asistencia_profesor.jsp">Asistencia</a></li>
+                    <li><a href="mensaje_profesor.jsp">Mensajería</a></li>
+                    <li><a href="nota_profesor.jsp">Notas</a></li>
                 </ul>
             </div>
 
@@ -559,46 +559,46 @@
                         <div class="tab-pane fade show active" id="mis-cursos" role="tabpanel">
                             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
                                 <%
-                                        try {
-                                            if (conn == null) {
-                                                Conexion c = new Conexion();
-                                                conn = c.conecta();
+                                    try {
+                                        if (conn == null) {
+                                            Conexion c = new Conexion();
+                                            conn = c.conecta();
+                                        }
+                                        String sql = "SELECT c.id_curso, c.nombre_curso, c.codigo_curso, c.creditos, "
+                                                + "c.imagen, c.tipo_imagen, pc.fecha_asignacion, "
+                                                + "(SELECT estado FROM solicitudes_cursos cr WHERE cr.id_profesor = pc.id_profesor AND cr.id_curso = pc.id_curso AND cr.tipo_solicitud = 'SALIR' ORDER BY fecha_solicitud DESC LIMIT 1) as pending_leave_status "
+                                                + "FROM cursos c "
+                                                + "JOIN profesor_curso pc ON c.id_curso = pc.id_curso "
+                                                + "WHERE pc.id_profesor = ? "
+                                                + "ORDER BY c.nombre_curso";
+                                        pstmt = conn.prepareStatement(sql);
+                                        pstmt.setInt(1, idProfesor);
+                                        rs = pstmt.executeQuery();
+
+                                        boolean tieneCursos = false;
+                                        while (rs.next()) {
+                                            tieneCursos = true;
+                                            int idCurso = rs.getInt("id_curso");
+                                            String nombreCurso = rs.getString("nombre_curso");
+                                            String codigoCurso = rs.getString("codigo_curso");
+                                            int creditos = rs.getInt("creditos");
+                                            byte[] imagen = rs.getBytes("imagen");
+                                            String tipoImagen = rs.getString("tipo_imagen");
+                                            String pendingLeaveStatus = rs.getString("pending_leave_status"); // Obtener el estado pendiente de solicitud de salida
+
+                                            String imagenBase64 = "";
+                                            if (imagen != null && imagen.length > 0) {
+                                                imagenBase64 = "data:" + tipoImagen + ";base64," + Base64.getEncoder().encodeToString(imagen);
                                             }
-                                            String sql = "SELECT c.id_curso, c.nombre_curso, c.codigo_curso, c.creditos, "
-                                                    + "c.imagen, c.tipo_imagen, pc.fecha_asignacion, "
-                                                    + "(SELECT estado FROM solicitudes_cursos cr WHERE cr.id_profesor = pc.id_profesor AND cr.id_curso = pc.id_curso AND cr.tipo_solicitud = 'SALIR' ORDER BY fecha_solicitud DESC LIMIT 1) as pending_leave_status "
-                                                    + "FROM cursos c "
-                                                    + "JOIN profesor_curso pc ON c.id_curso = pc.id_curso "
-                                                    + "WHERE pc.id_profesor = ? "
-                                                    + "ORDER BY c.nombre_curso";
-                                            pstmt = conn.prepareStatement(sql);
-                                            pstmt.setInt(1, idProfesor);
-                                            rs = pstmt.executeQuery();
-
-                                            boolean tieneCursos = false;
-                                            while (rs.next()) {
-                                                tieneCursos = true;
-                                                int idCurso = rs.getInt("id_curso");
-                                                String nombreCurso = rs.getString("nombre_curso");
-                                                String codigoCurso = rs.getString("codigo_curso");
-                                                int creditos = rs.getInt("creditos");
-                                                byte[] imagen = rs.getBytes("imagen");
-                                                String tipoImagen = rs.getString("tipo_imagen");
-                                                String pendingLeaveStatus = rs.getString("pending_leave_status"); // Obtener el estado pendiente de solicitud de salida
-
-                                                String imagenBase64 = "";
-                                                if (imagen != null && imagen.length > 0) {
-                                                    imagenBase64 = "data:" + tipoImagen + ";base64," + Base64.getEncoder().encodeToString(imagen);
-                                                }
                                 %>
                                 <div class="curso-card">
-                                        <% if (!imagenBase64.isEmpty()) {%>
+                                    <% if (!imagenBase64.isEmpty()) {%>
                                     <img src="<%= imagenBase64%>" class="curso-imagen" alt="<%= nombreCurso%>">
-                                        <% } else { %>
+                                    <% } else { %>
                                     <div class="curso-imagen-placeholder">
                                         <i class="bi bi-book"></i>
                                     </div>
-                                        <% }%>
+                                    <% }%>
                                     <div class="card-body">
                                         <h5 class="card-title"><%= nombreCurso%></h5>
                                         <p>
@@ -610,7 +610,7 @@
                                             <button class="btn btn-outline-danger" disabled>
                                                 Solicitud de salida pendiente
                                             </button>
-                                            <% } else { %>
+                                            <% } else {%>
                                             <a href="?action=salir&id_curso=<%= idCurso%>"
                                                class="btn btn-outline-danger"
                                                onclick="return confirm('¿Estás seguro de solicitar salir del curso: <%= nombreCurso%>? Esto requerirá la aprobación del administrador.')">
@@ -621,9 +621,9 @@
                                     </div>
                                 </div>
                                 <%
-                                            }
+                                    }
 
-                                            if (!tieneCursos) {
+                                    if (!tieneCursos) {
                                 %>
                                 <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 0;">
                                     <i class="bi bi-book" style="font-size: 3rem; color: #ccc;"></i>
@@ -631,14 +631,14 @@
                                     <p style="color: #999;">Ve a la pestaña "Cursos Disponibles" para unirte a cursos</p>
                                 </div>
                                 <%
-                                            }
-                                        } catch (Exception e) {
+                                    }
+                                } catch (Exception e) {
                                 %>
                                 <div style="grid-column: 1 / -1; background-color: #ffebee; color: #c62828; padding: 1rem; border-radius: 8px; border-left: 4px solid #c62828;">
                                     Error: <%= e.getMessage()%>
                                 </div>
                                 <%
-                                        }
+                                    }
                                 %>
                             </div>
                         </div>
@@ -646,56 +646,56 @@
                         <div class="tab-pane fade" id="disponibles" role="tabpanel">
                             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
                                 <%
-                                        try {
-                                            if (conn == null) {
-                                                Conexion c = new Conexion();
-                                                conn = c.conecta();
+                                    try {
+                                        if (conn == null) {
+                                            Conexion c = new Conexion();
+                                            conn = c.conecta();
+                                        }
+
+                                        // Consulta para cursos disponibles, excluyendo los ya asignados y aquellos con solicitudes de unión pendientes
+                                        String sql = "SELECT c.id_curso, c.nombre_curso, c.codigo_curso, c.creditos, "
+                                                + "c.imagen, c.tipo_imagen, car.nombre_carrera, "
+                                                + "(SELECT estado FROM solicitudes_cursos cr WHERE cr.id_profesor = p.id_profesor AND cr.id_curso = c.id_curso AND cr.tipo_solicitud = 'UNIRSE' ORDER BY fecha_solicitud DESC LIMIT 1) as pending_join_status "
+                                                + "FROM cursos c "
+                                                + "INNER JOIN carreras car ON c.id_carrera = car.id_carrera "
+                                                + "INNER JOIN facultades f ON car.id_facultad = f.id_facultad "
+                                                + "INNER JOIN profesores p ON p.id_facultad = f.id_facultad "
+                                                + "WHERE p.id_profesor = ? "
+                                                + "AND c.id_curso NOT IN ("
+                                                + "    SELECT pc.id_curso FROM profesor_curso pc WHERE pc.id_profesor = ?"
+                                                + ") "
+                                                + "ORDER BY c.nombre_curso";
+
+                                        pstmt = conn.prepareStatement(sql);
+                                        pstmt.setInt(1, idProfesor);
+                                        pstmt.setInt(2, idProfesor);
+                                        rs = pstmt.executeQuery();
+
+                                        boolean hayDisponibles = false;
+                                        while (rs.next()) {
+                                            hayDisponibles = true;
+                                            int idCurso = rs.getInt("id_curso");
+                                            String nombreCurso = rs.getString("nombre_curso");
+                                            String codigoCurso = rs.getString("codigo_curso");
+                                            int creditos = rs.getInt("creditos");
+                                            String nombreCarrera = rs.getString("nombre_carrera");
+                                            byte[] imagen = rs.getBytes("imagen");
+                                            String tipoImagen = rs.getString("tipo_imagen");
+                                            String pendingJoinStatus = rs.getString("pending_join_status"); // Obtener el estado pendiente de solicitud de unión
+
+                                            String imagenBase64 = "";
+                                            if (imagen != null && imagen.length > 0) {
+                                                imagenBase64 = "data:" + tipoImagen + ";base64," + Base64.getEncoder().encodeToString(imagen);
                                             }
-
-                                            // Consulta para cursos disponibles, excluyendo los ya asignados y aquellos con solicitudes de unión pendientes
-                                            String sql = "SELECT c.id_curso, c.nombre_curso, c.codigo_curso, c.creditos, "
-                                                    + "c.imagen, c.tipo_imagen, car.nombre_carrera, "
-                                                    + "(SELECT estado FROM solicitudes_cursos cr WHERE cr.id_profesor = p.id_profesor AND cr.id_curso = c.id_curso AND cr.tipo_solicitud = 'UNIRSE' ORDER BY fecha_solicitud DESC LIMIT 1) as pending_join_status "
-                                                    + "FROM cursos c "
-                                                    + "INNER JOIN carreras car ON c.id_carrera = car.id_carrera "
-                                                    + "INNER JOIN facultades f ON car.id_facultad = f.id_facultad "
-                                                    + "INNER JOIN profesores p ON p.id_facultad = f.id_facultad "
-                                                    + "WHERE p.id_profesor = ? "
-                                                    + "AND c.id_curso NOT IN ("
-                                                    + "    SELECT pc.id_curso FROM profesor_curso pc WHERE pc.id_profesor = ?"
-                                                    + ") "
-                                                    + "ORDER BY c.nombre_curso";
-
-                                            pstmt = conn.prepareStatement(sql);
-                                            pstmt.setInt(1, idProfesor);
-                                            pstmt.setInt(2, idProfesor);
-                                            rs = pstmt.executeQuery();
-
-                                            boolean hayDisponibles = false;
-                                            while (rs.next()) {
-                                                hayDisponibles = true;
-                                                int idCurso = rs.getInt("id_curso");
-                                                String nombreCurso = rs.getString("nombre_curso");
-                                                String codigoCurso = rs.getString("codigo_curso");
-                                                int creditos = rs.getInt("creditos");
-                                                String nombreCarrera = rs.getString("nombre_carrera");
-                                                byte[] imagen = rs.getBytes("imagen");
-                                                String tipoImagen = rs.getString("tipo_imagen");
-                                                String pendingJoinStatus = rs.getString("pending_join_status"); // Obtener el estado pendiente de solicitud de unión
-
-                                                String imagenBase64 = "";
-                                                if (imagen != null && imagen.length > 0) {
-                                                    imagenBase64 = "data:" + tipoImagen + ";base64," + Base64.getEncoder().encodeToString(imagen);
-                                                }
                                 %>
                                 <div class="curso-card">
-                                        <% if (!imagenBase64.isEmpty()) {%>
+                                    <% if (!imagenBase64.isEmpty()) {%>
                                     <img src="<%= imagenBase64%>" class="curso-imagen" alt="<%= nombreCurso%>">
-                                        <% } else { %>
+                                    <% } else { %>
                                     <div class="curso-imagen-placeholder">
                                         <i class="bi bi-book"></i>
                                     </div>
-                                        <% }%>
+                                    <% }%>
                                     <div class="card-body">
                                         <h5 class="card-title"><%= nombreCurso%></h5>
                                         <p class="text-muted" style="font-size: 0.9em; margin-bottom: 0.5rem;">
@@ -710,7 +710,7 @@
                                             <button class="btn btn-primary" disabled>
                                                 Solicitud de unión pendiente
                                             </button>
-                                            <% } else { %>
+                                            <% } else {%>
                                             <a href="?action=unirse&id_curso=<%= idCurso%>"
                                                class="btn btn-primary"
                                                onclick="return confirm('¿Estás seguro de solicitar unirte al curso: <%= nombreCurso%>? Esto requerirá la aprobación del administrador.')">
@@ -721,9 +721,9 @@
                                     </div>
                                 </div>
                                 <%
-                                            }
+                                    }
 
-                                            if (!hayDisponibles) {
+                                    if (!hayDisponibles) {
                                 %>
                                 <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 0;">
                                     <i class="bi bi-check-circle" style="font-size: 3rem; color: #4caf50;"></i>
@@ -731,28 +731,28 @@
                                     <p style="color: #999;">No hay más cursos de tu facultad disponibles para unirse</p>
                                 </div>
                                 <%
-                                            }
-                                        } catch (Exception e) {
+                                    }
+                                } catch (Exception e) {
                                 %>
                                 <div style="grid-column: 1 / -1; background-color: #ffebee; color: #c62828; padding: 1rem; border-radius: 8px; border-left: 4px solid #c62828;">
                                     <strong>Error:</strong> <%= e.getMessage()%>
                                 </div>
                                 <%
-                                        } finally {
-                                            try {
-                                                if (rs != null) {
-                                                    rs.close();
-                                                }
-                                                if (pstmt != null) {
-                                                    pstmt.close();
-                                                }
-                                                if (conn != null) {
-                                                    conn.close();
-                                                }
-                                            } catch (SQLException e) {
-                                                e.printStackTrace();
+                                    } finally {
+                                        try {
+                                            if (rs != null) {
+                                                rs.close();
                                             }
+                                            if (pstmt != null) {
+                                                pstmt.close();
+                                            }
+                                            if (conn != null) {
+                                                conn.close();
+                                            }
+                                        } catch (SQLException e) {
+                                            e.printStackTrace();
                                         }
+                                    }
                                 %>
                             </div>
                         </div>

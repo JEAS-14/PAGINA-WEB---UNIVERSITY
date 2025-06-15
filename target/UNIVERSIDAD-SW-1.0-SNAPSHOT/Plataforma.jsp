@@ -126,7 +126,7 @@
                                 <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#apoderadoModal">Apoderado</a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#adminModal">Administrador</a></li>
-                                <li><hr class="dropdown-divider"></li>                           
+                                <li><hr class="dropdown-divider"></li>                                
                             </ul>
                         </li>
                     </ul>
@@ -355,7 +355,7 @@
         <div class="modal fade" id="apoderadoModal" tabindex="-1" aria-labelledby="apoderadoModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
-                    <div class="modal-header bg-warning text-dark"> <%-- Cambié a bg-warning para un color diferente, puedes ajustar --%>
+                    <div class="modal-header bg-warning text-dark">
                         <h5 class="modal-title" id="apoderadoModalLabel"><i class="fas fa-user-friends me-2"></i> Iniciar Sesión Apoderado</h5>
                         <button type="button" class="btn-close btn-close-dark" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>

@@ -369,10 +369,10 @@
                 <ul>
                     <li><a href="home_profesor.jsp">Inicio</a></li>
                     <li><a href="facultad_profesor.jsp">Facultades</a></li>
-                    <li><a href="carreras_profesor.jsp">Carreras</a></li>
+                    <li><a href="carreras_profesor.jsp" class="active">Carreras</a></li>
                     <li><a href="cursos_profesor.jsp">Cursos</a></li>
-                    <li><a href="salones_profesor.jsp">Salones</a></li>
-                    <li><a href="horarios_profesor.jsp">Horarios</a></li>
+                    <li><a href="salones_profesor.jsp">Clases</a></li> 
+                    <li><a href="horarios_profesor.jsp">Horarios</a></li> 
                     <li><a href="asistencia_profesor.jsp">Asistencia</a></li>
                     <li><a href="mensaje_profesor.jsp">Mensajería</a></li>
                     <li><a href="nota_profesor.jsp">Notas</a></li>

@@ -13,7 +13,7 @@
     </head>
     <body>
         <h1>Prueba de conexion</h1>
-        <jsp:useBean id="conexion" class="pe.edu.util.Conexion" scope="session" ></jsp:useBean>
+        <jsp:useBean id="conexion" class="pe.universidad.util.Conexion" scope="session" ></jsp:useBean>
         <jsp:scriptlet>
             int log = 0;
             log = conexion.pruebaConexion();
