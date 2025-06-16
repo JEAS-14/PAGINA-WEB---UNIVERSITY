@@ -1,8 +1,8 @@
+<%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ page import="java.sql.*, java.util.*, pe.universidad.util.Conexion" %>
 <%@ page import="java.time.LocalDate, java.time.format.TextStyle, java.util.Locale" %>
 <%@ page import="java.util.List, java.util.ArrayList, java.util.HashMap, java.util.Map" %>
 <%@ page session="true" %>
-<%@ page contentType="text/html;charset=UTF-8" language="java" %>
 
 <%!
     // Helper method to parse a string to Double, returning null if empty or invalid
@@ -18,25 +18,63 @@
             return null; // Or throw an exception for clearer error handling
         }
     }
+
+    // Helper method to close database resources
+    private void closeDbResources(ResultSet rs, PreparedStatement pstmt) {
+        try {
+            if (rs != null) {
+                rs.close();
+            }
+        } catch (SQLException e) { /* Ignore */ }
+        try {
+            if (pstmt != null) {
+                pstmt.close();
+            }
+        } catch (SQLException e) { /* Ignore */ }
+    }
 %>
 
 <%
-    // --- Variables para la información del profesor logueado ---
+    // --- Session Validation ---
     Object idObj = session.getAttribute("id_profesor");
-    int idProfesor = -1; // Usamos idProfesor para ser más explícitos
-    String nombreProfesor = "";
-    String emailProfesor = "";
-    String facultadProfesor = "No asignada"; // Valor por defecto
-    
-    if (idObj != null) {
-        idProfesor = Integer.parseInt(idObj.toString());
-    } else {
-        // Si no hay ID de profesor en sesión, redirige al login
-        response.sendRedirect(request.getContextPath() + "/Plataforma.jsp"); // Ajusta la ruta a tu página de login
-        return; // Termina la ejecución del JSP
+    String rolUsuario = (String) session.getAttribute("rol"); // Ensure rol is checked
+    int idProfesor = -1;
+
+    if (idObj == null || !"profesor".equalsIgnoreCase(rolUsuario)) {
+        response.sendRedirect(request.getContextPath() + "/login.jsp"); // Adjust to your login page
+        return;
     }
 
-    // --- Variables para la lógica de notas ---
+    idProfesor = Integer.parseInt(idObj.toString());
+
+    String nombreProfesor = (String) session.getAttribute("nombre_profesor");
+    if (nombreProfesor == null || nombreProfesor.isEmpty()) {
+        // Fetch professor's name if not in session (e.g., direct access or session refresh)
+        Connection connTemp = null;
+        PreparedStatement pstmtTemp = null;
+        ResultSet rsTemp = null;
+        try {
+            connTemp = new Conexion().conecta();
+            String sqlGetNombre = "SELECT CONCAT(p.nombre, ' ', p.apellido_paterno, ' ', IFNULL(p.apellido_materno, '')) AS nombre_completo FROM profesores WHERE id_profesor = ?";
+            pstmtTemp = connTemp.prepareStatement(sqlGetNombre);
+            pstmtTemp.setInt(1, idProfesor);
+            rsTemp = pstmtTemp.executeQuery();
+            if (rsTemp.next()) {
+                nombreProfesor = rsTemp.getString("nombre_completo");
+                session.setAttribute("nombre_profesor", nombreProfesor); // Store for future use
+            }
+        } catch (SQLException | ClassNotFoundException ex) {
+            System.err.println("Error al obtener nombre del profesor: " + ex.getMessage());
+        } finally {
+            closeDbResources(rsTemp, pstmtTemp);
+            if (connTemp != null) { try { connTemp.close(); } catch (SQLException ignore) {} }
+        }
+    }
+
+    String emailProfesor = (String) session.getAttribute("email"); // Get email from session
+    String facultadProfesor = "No asignada"; // Default value
+
+    // --- Variables for grade logic ---
     String idClaseParam = request.getParameter("id_clase");
     String nombreClase = "Clase No Seleccionada";
     String codigoClase = "";
@@ -44,15 +82,15 @@
     String semestreClase = "";
     String anioAcademicoClase = "";
     
-    // Listas para almacenar datos
+    // Lists to store data
     List<Map<String, String>> clasesDelProfesor = new ArrayList<>();
     List<Map<String, String>> estudiantesDeClase = new ArrayList<>();
     
-    // Mensajes de éxito/error después de guardar
+    // Feedback messages after saving
     String mensajeFeedback = "";
-    String tipoMensajeFeedback = ""; // 'success' o 'danger'
+    String tipoMensajeFeedback = ""; // 'success' or 'danger'
 
-    // --- Conexión y recursos de DB ---
+    // --- Database Connection and Resources ---
     Connection conn = null;
     PreparedStatement pstmt = null;
     ResultSet rs = null;
@@ -61,27 +99,23 @@
         Conexion conexionUtil = new Conexion();
         conn = conexionUtil.conecta();
 
-        // 1. Obtener información básica del profesor
-        String sqlProfesor = "SELECT p.nombre, p.apellido_paterno, p.apellido_materno, p.email, f.nombre_facultad as facultad " +
-                             "FROM profesores p JOIN facultades f ON p.id_facultad = f.id_facultad " +
-                             "WHERE p.id_profesor = ?";
-        pstmt = conn.prepareStatement(sqlProfesor);
+        // 1. Get basic professor information (needed for sidebar/header, already fetched at top, but ensure it's here)
+        // Re-fetching facultades because it might not be in session
+        String sqlProfesorInfo = "SELECT p.email, f.nombre_facultad as facultad FROM profesores p LEFT JOIN facultades f ON p.id_facultad = f.id_facultad WHERE p.id_profesor = ?";
+        pstmt = conn.prepareStatement(sqlProfesorInfo);
         pstmt.setInt(1, idProfesor);
         rs = pstmt.executeQuery();
         if (rs.next()) {
-            nombreProfesor = rs.getString("nombre") + " " + rs.getString("apellido_paterno") +
-                             (rs.getString("apellido_materno") != null ? " " + rs.getString("apellido_materno") : "");
             emailProfesor = rs.getString("email");
-            facultadProfesor = rs.getString("facultad");
+            facultadProfesor = rs.getString("facultad") != null ? rs.getString("facultad") : "No asignada";
         }
-        if (rs != null) rs.close();
-        if (pstmt != null) pstmt.close();
+        closeDbResources(rs, pstmt);
 
-        // --- INICIO LÓGICA DE PROCESAMIENTO POST (Guardar Notas) ---
+        // --- START POST Processing Logic (Save Grades) ---
         if ("POST".equalsIgnoreCase(request.getMethod()) && idClaseParam != null && !idClaseParam.isEmpty()) {
             int idClaseGuardar = Integer.parseInt(idClaseParam);
             
-            // Re-verificar que esta clase pertenece al profesor logueado antes de guardar
+            // Re-verify that this class belongs to the logged-in professor before saving
             String sqlCheckClass = "SELECT COUNT(*) FROM clases WHERE id_clase = ? AND id_profesor = ?";
             pstmt = conn.prepareStatement(sqlCheckClass);
             pstmt.setInt(1, idClaseGuardar);
@@ -93,10 +127,9 @@
                 response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/nota_profesor.jsp?mensaje=" + java.net.URLEncoder.encode(mensajeFeedback, "UTF-8") + "&tipo=" + tipoMensajeFeedback);
                 return;
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
+            closeDbResources(rs, pstmt);
 
-            // Obtener todos los id_inscripcion de los alumnos en esta clase
+            // Get all id_inscripcion for students in this class
             String sqlInscripcionesClase = "SELECT id_inscripcion FROM inscripciones WHERE id_clase = ? AND estado = 'inscrito'";
             pstmt = conn.prepareStatement(sqlInscripcionesClase);
             pstmt.setInt(1, idClaseGuardar);
@@ -106,11 +139,10 @@
             while(rs.next()) {
                 idsInscripcionEnClase.add(rs.getInt("id_inscripcion"));
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
+            closeDbResources(rs, pstmt);
 
             int notasAfectadas = 0;
-            conn.setAutoCommit(false); // Iniciar transacción
+            conn.setAutoCommit(false); // Start transaction
 
             String sqlCheckNotaExists = "SELECT id_nota FROM notas WHERE id_inscripcion = ?";
             String sqlInsertNota = "INSERT INTO notas (id_inscripcion, nota1, nota2, nota3, examen_parcial, examen_final) VALUES (?, ?, ?, ?, ?, ?)";
@@ -137,8 +169,7 @@
                 if (rs.next()) {
                     noteExists = true;
                 }
-                if (rs != null) rs.close();
-                if (pstmt != null) pstmt.close();
+                closeDbResources(rs, pstmt);
 
                 if (noteExists) {
                     // Update existing record
@@ -167,13 +198,17 @@
                 }
                 if (pstmt != null) { try { pstmt.close(); } catch (SQLException ignore) {} } // Close after each use
             }
-            conn.commit(); // Confirmar transacción
+            conn.commit(); // Commit transaction
             mensajeFeedback = "Notas guardadas exitosamente para " + notasAfectadas + " alumnos.";
             tipoMensajeFeedback = "success";
 
-        } // Fin del bloque POST de procesamiento
+            // Redirect to clear POST data and show message
+            response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/nota_profesor.jsp?id_clase=" + idClaseParam + "&mensaje=" + java.net.URLEncoder.encode(mensajeFeedback, "UTF-8") + "&tipo=" + tipoMensajeFeedback);
+            return;
 
-        // Recuperar mensaje de feedback si viene de una redirección previa
+        } // End of POST processing block
+
+        // Retrieve feedback message if coming from a previous redirection
         String mensajeParam = request.getParameter("mensaje");
         String tipoParam = request.getParameter("tipo");
         if (mensajeParam != null && !mensajeParam.isEmpty()) {
@@ -181,9 +216,9 @@
             tipoMensajeFeedback = tipoParam != null ? tipoParam : "";
         }
 
-        // --- INICIO LÓGICA DE VISUALIZACIÓN GET (o después de POST) ---
+        // --- START Display Logic (GET or after POST) ---
         if (idClaseParam == null || idClaseParam.isEmpty()) {
-            // Si no se ha seleccionado una clase, listar todas las clases del profesor
+            // If no class selected, list all classes for the professor
             String sqlClasesProfesor = "SELECT cl.id_clase, cu.nombre_curso, cl.seccion, cl.semestre, cl.año_academico, h.aula " +
                                        "FROM clases cl " +
                                        "JOIN cursos cu ON cl.id_curso = cu.id_curso " +
@@ -203,13 +238,12 @@
                 clase.put("aula", rs.getString("aula"));
                 clasesDelProfesor.add(clase);
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
+            closeDbResources(rs, pstmt);
 
         } else {
-            // Si se ha seleccionado una clase, mostrar sus estudiantes y notas
+            // If a class is selected, show its students and grades
             int idClaseMostar = Integer.parseInt(idClaseParam);
-            // Obtener detalles de la clase seleccionada
+            // Get selected class details
             String sqlDetalleClase = "SELECT cu.nombre_curso, cu.codigo_curso, cl.seccion, h.aula, cl.semestre, cl.año_academico " +
                                      "FROM clases cl " +
                                      "JOIN cursos cu ON cl.id_curso = cu.id_curso " +
@@ -226,14 +260,13 @@
                 semestreClase = rs.getString("semestre");
                 anioAcademicoClase = String.valueOf(rs.getInt("año_academico"));
             } else {
-                // Si la clase no pertenece a este profesor o no existe, redirigir
+                // If the class doesn't belong to this professor or doesn't exist, redirect
                 response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/nota_profesor.jsp");
                 return;
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
+            closeDbResources(rs, pstmt);
 
-            // Obtener lista de estudiantes inscritos en la clase seleccionada y sus notas
+            // Get list of students enrolled in the selected class and their grades
             String sqlEstudiantes = "SELECT a.id_alumno, a.dni, a.nombre, a.apellido_paterno, a.apellido_materno, " +
                                     "i.id_inscripcion, n.nota1, n.nota2, n.nota3, n.examen_parcial, n.examen_final, n.nota_final, n.estado " +
                                     "FROM inscripciones i " +
@@ -248,31 +281,41 @@
             while (rs.next()) {
                 Map<String, String> estudiante = new HashMap<>();
                 estudiante.put("id_inscripcion", String.valueOf(rs.getInt("id_inscripcion")));
-                estudiante.put("dni", rs.getString("dni"));
-                estudiante.put("nombre_completo", rs.getString("nombre") + " " +
-                                                  rs.getString("apellido_paterno") + " " +
-                                                  (rs.getString("apellido_materno") != null ? rs.getString("apellido_materno") : ""));
+                estudiante.put("dni", rs.getString("dni") != null ? rs.getString("dni") : "");
+                String studentName = rs.getString("nombre") + " " + rs.getString("apellido_paterno");
+                if (rs.getString("apellido_materno") != null) {
+                    studentName += " " + rs.getString("apellido_materno");
+                }
+                estudiante.put("nombre_completo", studentName);
                 estudiante.put("nota1", rs.getString("nota1") != null ? rs.getString("nota1") : "");
                 estudiante.put("nota2", rs.getString("nota2") != null ? rs.getString("nota2") : "");
                 estudiante.put("nota3", rs.getString("nota3") != null ? rs.getString("nota3") : "");
                 estudiante.put("examen_parcial", rs.getString("examen_parcial") != null ? rs.getString("examen_parcial") : "");
                 estudiante.put("examen_final", rs.getString("examen_final") != null ? rs.getString("examen_final") : "");
-                estudiante.put("nota_final", rs.getString("nota_final") != null ? rs.getString("nota_final") : "N/A");
-                estudiante.put("estado_nota", rs.getString("estado") != null ? rs.getString("estado") : "pendiente");
+                
+                double notaFinalVal = rs.getDouble("nota_final");
+                // Check for SQL NULL vs. actual 0.0 value or if it was not calculated
+                if (rs.wasNull()) {
+                    estudiante.put("nota_final", "N/A"); // No final grade calculated yet or is null
+                } else {
+                    estudiante.put("nota_final", String.format(Locale.US, "%.2f", notaFinalVal)); // Format to 2 decimal places
+                }
+
+                String estadoNota = rs.getString("estado"); // 'aprobado', 'desaprobado', or null/empty
+                estudiante.put("estado_nota", estadoNota != null ? estadoNota : "Pendiente"); // Default to "Pendiente"
                 estudiantesDeClase.add(estudiante);
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
+            closeDbResources(rs, pstmt);
         }
 
-    } catch (Exception e) { // Captura cualquier excepción que ocurra
+    } catch (Exception e) { // Catch any exception that occurs
         System.err.println("ERROR general en nota_profesor.jsp: " + e.getMessage());
         e.printStackTrace();
-        mensajeFeedback = "Ocurrió un error inesperado: " + e.getMessage();
+        mensajeFeedback = "Ocurrió un error inesperado al cargar o guardar notas: " + e.getMessage();
         tipoMensajeFeedback = "danger";
-        try { if (conn != null) conn.rollback(); } catch (SQLException rbex) { rbex.printStackTrace(); } // Rollback on error
+        try { if (conn != null) conn.rollback(); } catch (SQLException rbex) { System.err.println("Error al hacer rollback: " + rbex.getMessage()); }
     } finally {
-        // Asegurar cierre de recursos
+        // Ensure resources are closed
         try { if (rs != null) rs.close(); } catch (SQLException e) { e.printStackTrace(); }
         try { if (pstmt != null) pstmt.close(); } catch (SQLException e) { e.printStackTrace(); }
         try { if (conn != null) { conn.setAutoCommit(true); conn.close(); } } catch (SQLException e) { e.printStackTrace(); } // Reset auto-commit and close
@@ -284,238 +327,212 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notas de Alumnos - Sistema Universitario</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <title>Notas de Alumnos | Sistema Universitario</title>
+    <link rel="icon" type="image/x-icon" href="<%= request.getContextPath() %>/img/favicon.ico"> <%-- Assuming favicon.ico exists in your img folder --%>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        /* Consistent AdminKit-like CSS variables */
         :root {
-            --primary-color: #002366; /* Azul universitario oscuro */
-            --secondary-color: #FFD700; /* Dorado */
-            --accent-color: #800000; /* Granate */
-            --light-color: #F5F5F5;
-            --dark-color: #333333;
+            --admin-dark: #222B40;
+            --admin-light-bg: #F0F2F5;
+            --admin-card-bg: #FFFFFF;
+            --admin-text-dark: #333333;
+            --admin-text-muted: #6C757D;
+            --admin-primary: #007BFF;
+            --admin-success: #28A745;
+            --admin-danger: #DC3545;
+            --admin-warning: #FFC107;
+            --admin-info: #17A2B8;
+            --admin-secondary-color: #6C757D;
         }
-        
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f9f9f9;
-            color: var(--dark-color);
-        }
-        
-        .header {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1rem 2rem;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--admin-light-bg);
+            color: var(--admin-text-dark);
+            min-height: 100vh;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            flex-direction: column;
+            overflow-x: hidden;
         }
-        
-        .logo {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--secondary-color);
-        }
-        
-        .user-info {
-            text-align: right;
-        }
-        
-        .user-info p {
-            margin: 0.2rem 0;
-            font-size: 0.9rem;
-        }
-        
-        .user-name {
-            font-weight: bold;
-            color: var(--secondary-color);
-        }
-        
-        .container-fluid { /* Contenedor principal de la aplicación */
+
+        #app {
             display: flex;
-            min-height: calc(100vh - 60px); /* Ajusta para el header */
-            padding: 0; /* Elimina padding horizontal */
-        }
-        
-        .sidebar {
-            width: 250px;
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1.5rem 0;
-            flex-shrink: 0; /* Evita que el sidebar se encoja */
-        }
-        
-        .sidebar ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        
-        .sidebar li a {
-            display: block;
-            padding: 0.8rem 1.5rem;
-            color: white;
-            text-decoration: none;
-            transition: all 0.3s;
-            border-left: 4px solid transparent;
-        }
-        
-        .sidebar li a:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-            border-left: 4px solid var(--secondary-color);
-        }
-        
-        .sidebar li a.active {
-            background-color: rgba(255, 255, 255, 0.2);
-            border-left: 4px solid var(--secondary-color);
-            font-weight: bold;
-        }
-        
-        .main-content {
-            flex-grow: 1; /* Permite que el contenido principal ocupe el espacio restante */
-            padding: 2rem; /* Mantiene el padding interno para el contenido */
-            overflow-y: auto; /* Para desplazamiento si el contenido es largo */
-        }
-        
-        .info-card { /* Tarjetas generales de información */
-            background-color: white;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            border-left: 4px solid var(--secondary-color);
-        }
-        
-        .info-card h1, .info-card h2, .info-card h3 {
-            color: var(--primary-color);
-            margin-top: 0;
-            margin-bottom: 1rem;
-        }
-
-        .profesor-info-card { /* Estilo específico para la info del profesor */
-            border-top: 4px solid var(--primary-color);
-            border-left: none; /* Anula el border-left de .info-card si aplica */
-        }
-
-        .class-list-card { /* Estilo específico para la lista de clases */
-            border-top: 4px solid var(--accent-color);
-            border-left: none;
-        }
-
-        .grades-form-card { /* Estilo específico para el formulario de notas */
-            border-top: 4px solid #28a745; /* Verde */
-            border-left: none;
-        }
-
-        .table-custom {
+            flex: 1;
             width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
         }
-        
-        .table-custom th {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1rem;
-            text-align: left;
+
+        /* Sidebar styles */
+        .sidebar {
+            width: 280px; background-color: var(--admin-dark); color: rgba(255,255,255,0.8); padding-top: 1rem; flex-shrink: 0;
+            position: sticky; top: 0; left: 0; height: 100vh; overflow-y: auto; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 1030;
+        }
+        .sidebar-header { padding: 1rem 1.5rem; margin-bottom: 1.5rem; text-align: center; font-size: 1.5rem; font-weight: 700; color: var(--admin-primary); border-bottom: 1px solid rgba(255,255,255,0.05);}
+        .sidebar .nav-link { display: flex; align-items: center; padding: 0.75rem 1.5rem; color: rgba(255,255,255,0.7); text-decoration: none; transition: all 0.2s ease-in-out; font-weight: 500;}
+        .sidebar .nav-link i { margin-right: 0.75rem; font-size: 1.1rem;}
+        .sidebar .nav-link:hover, .sidebar .nav-link.active { color: white; background-color: rgba(255,255,255,0.08); border-left: 4px solid var(--admin-primary); padding-left: 1.3rem;}
+
+        /* Main Content area */
+        .main-content {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Navbar styles */
+        .top-navbar {
+            background-color: var(--admin-card-bg); padding: 1rem 1.5rem; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+            margin-bottom: 1.5rem; border-radius: 0.5rem; display: flex; justify-content: space-between; align-items: center;
+        }
+        .top-navbar .search-bar .form-control { border: 1px solid #e0e0e0; border-radius: 0.3rem; padding: 0.5rem 1rem; }
+        .top-navbar .user-dropdown .dropdown-toggle { display: flex; align-items: center; color: var(--admin-text-dark); text-decoration: none; }
+        .top-navbar .user-dropdown .dropdown-toggle img { width: 32px; height: 32px; border-radius: 50%; margin-right: 0.5rem; object-fit: cover; border: 2px solid var(--admin-primary); }
+
+        /* Welcome section */
+        .welcome-section {
+            background-color: var(--admin-card-bg); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+        }
+        .welcome-section h1 { color: var(--admin-text-dark); font-weight: 600; margin-bottom: 0.5rem;}
+        .welcome-section p.lead { color: var(--admin-text-muted); font-size: 1rem;}
+
+        /* Content section cards */
+        .content-section.card {
+            border-radius: 0.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+            margin-bottom: 1.5rem;
+        }
+        .content-section.card.prof-info { border-left: 4px solid var(--admin-primary); }
+        .content-section.card.class-selection { border-left: 4px solid var(--admin-info); } /* Cyan for class selection */
+        .content-section.card.grades-form { border-left: 4px solid var(--admin-success); } /* Green for grades form */
+        .content-section.card.report-section { border-left: 4px solid var(--admin-warning); } /* Yellow for reports */
+
+
+        .section-title {
+            color: var(--admin-primary);
+            margin-bottom: 1rem;
             font-weight: 600;
         }
-        
-        .table-custom td {
-            padding: 1rem;
-            border-bottom: 1px solid #eee;
+
+        /* Professor Info Card */
+        .profesor-info-card .card-title { color: var(--admin-text-dark); }
+        .profesor-info-card .card-body p strong { color: var(--admin-text-dark); }
+
+
+        /* Class Selection Cards (for class list) */
+        .class-select-card {
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            border: 1px solid #e0e0e0;
+            border-left: 5px solid var(--admin-primary);
+            background-color: var(--admin-card-bg);
+            border-radius: 0.5rem;
+        }
+        .class-select-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 0.25rem 0.5rem rgba(0,0,0,0.1);
+            border-color: var(--admin-info); /* Highlight on hover */
+        }
+        .class-select-card .card-title {
+            font-weight: 600;
+            color: var(--admin-primary);
+        }
+        .class-select-card .card-text {
+            font-size: 0.9rem;
+            color: var(--admin-text-muted);
+        }
+        .class-select-card .action-icon {
+            font-size: 1.5rem;
+            color: var(--admin-primary);
+        }
+
+        /* Grades Table */
+        .table-grades thead th {
+            background-color: var(--admin-primary);
+            color: white;
+            font-weight: 600;
+            vertical-align: middle;
+            position: sticky; /* Sticky header */
+            top: 0;
+            z-index: 1;
+        }
+        .table-grades tbody td, .table-grades tbody th {
             vertical-align: middle;
         }
-        
-        .table-custom tr:hover {
-            background-color: #f8f9fa;
-        }
-        
-        .table-custom tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        
-        .table-custom tr:nth-child(even):hover {
-            background-color: #f0f0f0;
-        }
+        .table-grades tbody tr:hover { background-color: rgba(0, 123, 255, 0.05); }
 
-        .btn-accion {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 5px;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-block;
-            transition: background-color 0.3s;
-        }
-        .btn-accion:hover {
-            background-color: var(--accent-color);
-        }
-
-        .form-control-custom { /* Para los inputs de notas */
-            width: 80px; /* Ancho más pequeño para las notas */
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            text-align: center; /* Centrar texto */
-        }
-
-        .btn-guardar-notas {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-            font-weight: 500;
-        }
-        .btn-guardar-notas:hover {
-            background-color: var(--accent-color);
-        }
-
-        .no-data-message {
+        .form-control-grade { /* Specific style for grade input fields */
+            width: 75px; /* Narrower width */
+            padding: 0.375rem 0.75rem; /* Smaller padding */
+            font-size: 0.875rem; /* Smaller font size */
             text-align: center;
-            padding: 2rem;
-            color: #6c757d;
-            font-style: italic;
-        }
-
-        .logout-btn {
-            background-color: var(--accent-color);
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        .logout-btn:hover {
-            background-color: #990000;
-        }
-
-        /* Mensajes de feedback */
-        .alert-custom {
-            padding: 1rem;
-            margin-bottom: 1.5rem;
-            border: 1px solid transparent;
+            border: 1px solid #ced4da;
             border-radius: 0.25rem;
         }
+        .form-control-grade:focus {
+            border-color: var(--admin-primary);
+            box-shadow: 0 0 0 0.25rem rgba(0, 123, 255, 0.25);
+        }
+
+        /* Buttons */
+        .btn-action-custom { /* Used for "Administrar Notas", "Volver a Clases", "Ir a Reportes" */
+            background-color: var(--admin-primary);
+            color: white;
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 0.3rem;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+        .btn-action-custom:hover {
+            background-color: #0056b3;
+            color: white;
+            transform: translateY(-2px);
+        }
+        .btn-action-custom.btn-secondary { /* For secondary actions */
+             background-color: var(--admin-secondary-color);
+        }
+        .btn-action-custom.btn-secondary:hover {
+            background-color: #5a6268;
+        }
+        .btn-action-custom.btn-primary { /* Explicit primary for form submit */
+            background-color: var(--admin-primary);
+        }
+        .btn-action-custom.btn-primary:hover {
+            background-color: #0056b3;
+        }
+        .btn-action-custom.btn-warning-report { /* Specific for report button */
+            background-color: var(--admin-warning);
+            color: var(--admin-text-dark); /* Darker text for warning */
+        }
+        .btn-action-custom.btn-warning-report:hover {
+            background-color: #e0a800; /* Darker yellow */
+        }
+
+
+        /* Feedback messages (Bootstrap alerts) */
+        .alert-custom {
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            border-radius: 0.375rem;
+        }
         .alert-success-custom {
-            color: #0f5132;
-            background-color: #d1e7dd;
-            border-color: #badbcc;
+            color: var(--admin-success);
+            background-color: rgba(40, 167, 69, 0.1);
+            border-color: var(--admin-success);
         }
         .alert-danger-custom {
-            color: #842029;
-            background-color: #f8d7da;
-            border-color: #f5c2c7;
+            color: var(--admin-danger);
+            background-color: rgba(220, 53, 69, 0.1);
+            border-color: var(--admin-danger);
         }
 
         /* Badge for notes status */
@@ -531,198 +548,318 @@
             vertical-align: baseline;
             border-radius: .25rem;
         }
-        .bg-success { background-color: #198754!important; }
-        .bg-danger { background-color: #dc3545!important; }
-        .bg-secondary { background-color: #6c757d!important; }
+        .badge.bg-success { background-color: var(--admin-success) !important; }
+        .badge.bg-danger { background-color: var(--admin-danger) !important; }
+        .badge.bg-secondary { background-color: var(--admin-secondary-color) !important; }
+
+        /* No data message */
+        .no-data-message {
+            text-align: center;
+            padding: 2rem;
+            color: var(--admin-text-muted);
+            font-style: italic;
+            font-size: 1.1rem;
+        }
+        .no-data-message i {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            display: block;
+            color: var(--admin-secondary-color);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 992px) {
+            .sidebar { width: 220px; }
+            .main-content { padding: 1rem; }
+        }
+        @media (max-width: 768px) {
+            #app { flex-direction: column; }
+            .sidebar {
+                width: 100%; height: auto; position: relative;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1); padding-bottom: 0.5rem;
+            }
+            .sidebar .nav-link { justify-content: center; padding: 0.6rem 1rem;}
+            .sidebar .nav-link i { margin-right: 0.5rem;}
+            .top-navbar { flex-direction: column; align-items: flex-start;}
+            .top-navbar .search-bar { width: 100%; margin-bottom: 1rem;}
+            .top-navbar .user-dropdown { width: 100%; text-align: center;}
+            .top-navbar .user-dropdown .dropdown-toggle { justify-content: center;}
+
+            .content-section.card { padding: 1.5rem 1rem; }
+            .table-grades { font-size: 0.85rem; }
+            .table-grades th, .table-grades td { padding: 0.75rem 0.5rem; }
+            .form-control-grade { width: 60px; padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+            .btn-action-custom { padding: 0.5rem 1rem; font-size: 0.9rem; }
+        }
+        @media (max-width: 576px) {
+            .main-content { padding: 0.75rem; }
+            .welcome-section, .content-section.card { padding: 1rem;}
+        }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="logo">Sistema Universitario</div>
-        <div class="user-info">
-            <p class="user-name"><%= nombreProfesor %></p>
-            <p><%= emailProfesor %></p>
-            <p><%= facultadProfesor %></p>
-            <form action="logout.jsp" method="post">
-                <button type="submit" class="logout-btn">Cerrar sesión</button>
-            </form>
-        </div>
-    </div>
-    
-    <div class="container-fluid">
-        <div class="sidebar">
-            <ul>
-                <li><a href="home_profesor.jsp">Inicio</a></li>
-                <li><a href="facultad_profesor.jsp">Facultades</a></li>
-                <li><a href="carreras_profesor.jsp">Carreras</a></li>
-                <li><a href="cursos_profesor.jsp">Cursos</a></li>
-                <li><a href="salones_profesor.jsp">Clases</a></li> 
-                <li><a href="horarios_profesor.jsp">Horarios</a></li> 
-                <li><a href="asistencia_profesor.jsp">Asistencia</a></li> 
-                <li><a href="mensaje_profesor.jsp">Mensajería</a></li>
-                <li><a href="nota_profesor.jsp" class="active">Notas</a></li>
+    <div id="app">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <a href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/home_profesor.jsp" class="text-white text-decoration-none">UGIC Portal</a>
+            </div>
+            <ul class="navbar-nav">
+                <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/home_profesor.jsp"><i class="fas fa-chart-line"></i><span> Dashboard</span></a></li>
+                <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/facultad_profesor.jsp"><i class="fas fa-building"></i><span> Facultades</span></a></li>
+                <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/carreras_profesor.jsp"><i class="fas fa-graduation-cap"></i><span> Carreras</span></a></li>
+                <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/cursos_profesor.jsp"><i class="fas fa-book"></i><span> Cursos</span></a></li>
+                <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/salones_profesor.jsp"><i class="fas fa-chalkboard"></i><span> Clases</span></a></li>
+                <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/horarios_profesor.jsp"><i class="fas fa-calendar-alt"></i><span> Horarios</span></a></li>
+                <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/asistencia_profesor.jsp"><i class="fas fa-clipboard-check"></i><span> Asistencia</span></a></li>
+                <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/mensaje_profesor.jsp"><i class="fas fa-envelope"></i><span> Mensajería</span></a></li>
+                <li class="nav-item"><a class="nav-link active" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/nota_profesor.jsp"><i class="fas fa-percent"></i><span> Notas</span></a></li>
+                <li class="nav-item mt-3">
+                    <form action="<%= request.getContextPath() %>/logout.jsp" method="post" class="d-grid gap-2">
+                        <button type="submit" class="btn btn-outline-light mx-3"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</button>
+                    </form>
+                </li>
             </ul>
-        </div>
-        
+        </nav>
+
         <div class="main-content">
-            <div class="info-card">
-                <h1>Registro de Notas</h1>
-                <p>Aquí puede ingresar y actualizar las notas de sus alumnos.</p>
-            </div>
-
-            <% if (!mensajeFeedback.isEmpty()) { %>
-                <div class="alert-custom alert-<%= tipoMensajeFeedback %>-custom" role="alert">
-                    <%= mensajeFeedback %>
+            <nav class="top-navbar">
+                <div class="search-bar">
+                    <form class="d-flex">
+                        <input class="form-control me-2" type="search" placeholder="Buscar..." aria-label="Search">
+                        <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-search"></i></button>
+                    </form>
                 </div>
-            <% } %>
-
-            <div class="info-card profesor-info-card">
-                <h3>Información del Profesor</h3>
-                <p><strong>Nombre:</strong> <%= nombreProfesor %></p>
-                <p><strong>Email:</strong> <%= emailProfesor %></p>
-                <p><strong>Facultad:</strong> <%= facultadProfesor %></p>
-            </div>
-            
-            <% if (idClaseParam == null || idClaseParam.isEmpty()) { %>
-                <div class="info-card class-list-card">
-                    <h2>Seleccione una Clase para Administrar Notas</h2>
-                    <% if (clasesDelProfesor.isEmpty()) { %>
-                        <p class="no-data-message">No tiene clases asignadas actualmente.</p>
-                    <% } else { %>
-                        <table class="table-custom">
-                            <thead>
-                                <tr>
-                                    <th>Curso</th>
-                                    <th>Sección</th>
-                                    <th>Semestre</th>
-                                    <th>Año Académico</th>
-                                    <th>Aula</th>
-                                    <th>Acción</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <% for (Map<String, String> clase : clasesDelProfesor) { %>
-                                    <tr>
-                                        <td><%= clase.get("nombre_curso") %></td>
-                                        <td><%= clase.get("seccion") %></td>
-                                        <td><%= clase.get("semestre") %></td>
-                                        <td><%= clase.get("anio_academico") %></td>
-                                        <td><%= clase.get("aula") %></td>
-                                        <td>
-                                            <a href="nota_profesor.jsp?id_clase=<%= clase.get("id_clase") %>" class="btn-accion">
-                                                Administrar Notas
-                                            </a>
-                                        </td>
-                                    </tr>
-                                <% } %>
-                            </tbody>
-                        </table>
-                    <% } %>
-                </div>
-            <% } else { %>
-                <div class="info-card grades-form-card">
-                    <div class="d-flex justify-content-between align-items-center mb-3 pb-3 border-bottom">
-                        <h2 class="h5 mb-0 text-primary">Notas de <%= nombreClase %> (<%= codigoClase %> - <%= aulaClase %>)</h2>
+                <div class="d-flex align-items-center">
+                    <div class="me-3 dropdown">
+                        <a class="text-dark" href="#" role="button" id="notificationsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-bell fa-lg"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                                3
+                            </span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="notificationsDropdown">
+                            <li><a class="dropdown-item" href="#">Nueva nota pendiente</a></li>
+                            <li><a class="dropdown-item" href="#">Recordatorio de clase</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#">Ver todas</a></li>
+                        </ul>
+                    </div>
+                    <div class="me-3 dropdown">
+                        <a class="text-dark" href="#" role="button" id="messagesDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-envelope fa-lg"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                                2
+                            </span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="messagesDropdown">
+                            <li><a class="dropdown-item" href="#">Mensaje de Alumno X</a></li>
+                            <li><a class="dropdown-item" href="#">Mensaje de Coordinación</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#">Ver todos</a></li>
+                        </ul>
                     </div>
 
-                    <% if (estudiantesDeClase.isEmpty()) { %>
-                        <p class="no-data-message">No hay alumnos inscritos en esta clase o la clase no fue encontrada para su profesor.</p>
-                        <div class="text-center mt-4">
-                            <a href="nota_profesor.jsp" class="btn-accion">Volver a Clases</a>
-                        </div>
-                    <% } else { %>
-                        <form method="post" action="nota_profesor.jsp?id_clase=<%= idClaseParam %>">
-                            <table class="table-custom">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>DNI</th>
-                                        <th>Nombre Completo</th>
-                                        <th>Nota 1 (0-20)</th>
-                                        <th>Nota 2 (0-20)</th>
-                                        <th>Nota 3 (0-20)</th>
-                                        <th>Ex. Parcial (0-20)</th>
-                                        <th>Ex. Final (0-20)</th>
-                                        <th>Nota Final</th>
-                                        <th>Estado</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <% int contador = 1; %>
-                                    <% for (Map<String, String> estudiante : estudiantesDeClase) { %>
-                                        <tr>
-                                            <td><%= contador++ %></td>
-                                            <td><%= estudiante.get("dni") %></td>
-                                            <td><%= estudiante.get("nombre_completo") %></td>
-                                            <td>
-                                                <input type="number" step="0.01" min="0" max="20" class="form-control-custom" 
-                                                       name="nota1_<%= estudiante.get("id_inscripcion") %>" 
-                                                       value="<%= estudiante.get("nota1") %>">
-                                            </td>
-                                            <td>
-                                                <input type="number" step="0.01" min="0" max="20" class="form-control-custom" 
-                                                       name="nota2_<%= estudiante.get("id_inscripcion") %>" 
-                                                       value="<%= estudiante.get("nota2") %>">
-                                            </td>
-                                            <td>
-                                                <input type="number" step="0.01" min="0" max="20" class="form-control-custom" 
-                                                       name="nota3_<%= estudiante.get("id_inscripcion") %>" 
-                                                       value="<%= estudiante.get("nota3") %>">
-                                            </td>
-                                            <td>
-                                                <input type="number" step="0.01" min="0" max="20" class="form-control-custom" 
-                                                       name="examen_parcial_<%= estudiante.get("id_inscripcion") %>" 
-                                                       value="<%= estudiante.get("examen_parcial") %>">
-                                            </td>
-                                            <td>
-                                                <input type="number" step="0.01" min="0" max="20" class="form-control-custom" 
-                                                       name="examen_final_<%= estudiante.get("id_inscripcion") %>" 
-                                                       value="<%= estudiante.get("examen_final") %>">
-                                            </td>
-                                            <td>
-                                                <span class="badge 
-                                                      <% if ("aprobado".equals(estudiante.get("estado_nota"))) { %> bg-success 
-                                                      <% } else if ("desaprobado".equals(estudiante.get("estado_nota"))) { %> bg-danger
-                                                      <% } else { %> bg-secondary <% } %>">
-                                                    <%= estudiante.get("nota_final") %>
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <span class="badge 
-                                                      <% if ("aprobado".equals(estudiante.get("estado_nota"))) { %> bg-success 
-                                                      <% } else if ("desaprobado".equals(estudiante.get("estado_nota"))) { %> bg-danger
-                                                      <% } else { %> bg-secondary <% } %>">
-                                                    <%= estudiante.get("estado_nota") %>
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    <% } %>
-                                </tbody>
-                            </table>
-                            
-                            <div class="text-center mt-4">
-                                <button type="submit" class="btn-guardar-notas">
-                                    Guardar Notas
-                                </button>
-                                <a href="nota_profesor.jsp" class="btn-accion ms-2">Volver a Clases</a>
-                            </div>
-                        </form>
-                    <% } %>
+                    <div class="dropdown user-dropdown">
+                        <a class="dropdown-toggle" href="#" role="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <img src="https://via.placeholder.com/32" alt="Avatar"> <span class="d-none d-md-inline-block"><%= nombreProfesor != null ? nombreProfesor : "Profesor" %></span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Perfil</a></li>
+                            <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Configuración</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="<%= request.getContextPath() %>/logout.jsp"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</a></li>
+                        </ul>
+                    </div>
                 </div>
-            <% } %>
+            </nav>
 
-            <%-- Nuevo: Tarjeta para Reporte de Notas --%>
-            <div class="info-card report-card mt-4">
-                <h2>Generar Reporte de Notas</h2>
-                <p>Acceda a los reportes detallados de las notas de sus alumnos.</p>
-                <a href="reporte-notas.jsp" class="btn-accion">
-                    <i class="bi bi-file-earmark-bar-graph"></i> Ir a Reportes
-                </a>
-            </div>
+            <div class="container-fluid">
+                <div class="welcome-section">
+                    <h1 class="h3 mb-3"><i class="fas fa-percent me-2"></i>Gestión de Notas</h1>
+                    <p class="lead">Aquí puede ingresar y actualizar las notas de sus alumnos.</p>
+                </div>
 
+                <% if (!mensajeFeedback.isEmpty()) { %>
+                    <div class="alert alert-<%= tipoMensajeFeedback %> alert-dismissible fade show alert-custom" role="alert">
+                        <i class="fas <%= "success".equals(tipoMensajeFeedback) ? "fa-check-circle" : "fa-exclamation-triangle" %> me-2"></i>
+                        <%= mensajeFeedback %>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                <% } %>
+
+                <div class="card content-section prof-info">
+                    <div class="card-body">
+                        <h3 class="card-title text-primary"><i class="fas fa-user-circle me-2"></i>Información del Profesor</h3>
+                        <p class="mb-1"><strong>Nombre:</strong> <%= nombreProfesor %></p>
+                        <p class="mb-1"><strong>Email:</strong> <%= emailProfesor %></p>
+                        <p class="mb-0"><strong>Facultad:</strong> <%= facultadProfesor %></p>
+                    </div>
+                </div>
+                
+                <% if (idClaseParam == null || idClaseParam.isEmpty()) { %>
+                    <div class="card content-section class-selection">
+                        <div class="card-body">
+                            <h2 class="card-title text-primary"><i class="fas fa-chalkboard-teacher me-2"></i>Seleccione una Clase para Administrar Notas</h2>
+                            <% if (clasesDelProfesor.isEmpty()) { %>
+                                <p class="no-data-message">
+                                    <i class="fas fa-info-circle"></i>
+                                    No tiene clases asignadas actualmente.
+                                </p>
+                            <% } else { %>
+                                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                                    <table class="table table-hover table-striped table-grades caption-top">
+                                        <caption>Clases activas asignadas a usted.</caption>
+                                        <thead>
+                                            <tr>
+                                                <th>Curso</th>
+                                                <th>Sección</th>
+                                                <th>Semestre</th>
+                                                <th>Año Académico</th>
+                                                <th>Aula</th>
+                                                <th>Acción</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <% for (Map<String, String> clase : clasesDelProfesor) { %>
+                                                <tr>
+                                                    <td><%= clase.get("nombre_curso") %></td>
+                                                    <td><%= clase.get("seccion") %></td>
+                                                    <td><%= clase.get("semestre") %></td>
+                                                    <td><%= clase.get("anio_academico") %></td>
+                                                    <td><%= clase.get("aula") %></td>
+                                                    <td>
+                                                        <a href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/nota_profesor.jsp?id_clase=<%= clase.get("id_clase") %>" class="btn btn-sm btn-action-custom">
+                                                            <i class="fas fa-edit"></i> Administrar Notas
+                                                        </a>
+                                                    </td>
+                                                </tr>
+                                            <% } %>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <% } %>
+                        </div>
+                    </div>
+                <% } else { %>
+                    <div class="card content-section grades-form">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3 pb-3 border-bottom">
+                                <h2 class="h5 mb-0 text-primary"><i class="fas fa-book-reader me-2"></i>Notas de <%= nombreClase %> (<%= codigoClase %> - <%= aulaClase %>)</h2>
+                                <span class="text-muted"><small>Semestre: <%= semestreClase %> - Año: <%= anioAcademicoClase %></small></span>
+                            </div>
+
+                            <% if (estudiantesDeClase.isEmpty()) { %>
+                                <p class="no-data-message">
+                                    <i class="fas fa-exclamation-circle"></i>
+                                    No hay alumnos inscritos en esta clase o la clase no fue encontrada para su profesor.
+                                </p>
+                                <div class="text-center mt-4">
+                                    <a href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/nota_profesor.jsp" class="btn btn-action-custom btn-secondary">
+                                        <i class="fas fa-arrow-left"></i> Volver a Clases
+                                    </a>
+                                </div>
+                            <% } else { %>
+                                <form method="post" action="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/nota_profesor.jsp?id_clase=<%= idClaseParam %>">
+                                    <div class="table-responsive" style="max-height: 550px; overflow-y: auto;">
+                                        <table class="table table-hover table-striped table-sm table-grades caption-top">
+                                            <caption>Ingresa y actualiza las notas de tus alumnos.</caption>
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>DNI</th>
+                                                    <th>Nombre Completo</th>
+                                                    <th>Nota 1<br>(0-20)</th>
+                                                    <th>Nota 2<br>(0-20)</th>
+                                                    <th>Nota 3<br>(0-20)</th>
+                                                    <th>Ex. Parcial<br>(0-20)</th>
+                                                    <th>Ex. Final<br>(0-20)</th>
+                                                    <th>Nota Final</th>
+                                                    <th>Estado</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <% int contador = 1; %>
+                                                <% for (Map<String, String> estudiante : estudiantesDeClase) { %>
+                                                    <tr>
+                                                        <td><%= contador++ %></td>
+                                                        <td><%= estudiante.get("dni") %></td>
+                                                        <td><%= estudiante.get("nombre_completo") %></td>
+                                                        <td>
+                                                            <input type="number" step="0.01" min="0" max="20" class="form-control form-control-sm form-control-grade"
+                                                                name="nota1_<%= estudiante.get("id_inscripcion") %>"
+                                                                value="<%= estudiante.get("nota1") %>">
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" step="0.01" min="0" max="20" class="form-control form-control-sm form-control-grade"
+                                                                name="nota2_<%= estudiante.get("id_inscripcion") %>"
+                                                                value="<%= estudiante.get("nota2") %>">
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" step="0.01" min="0" max="20" class="form-control form-control-sm form-control-grade"
+                                                                name="nota3_<%= estudiante.get("id_inscripcion") %>"
+                                                                value="<%= estudiante.get("nota3") %>">
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" step="0.01" min="0" max="20" class="form-control form-control-sm form-control-grade"
+                                                                name="examen_parcial_<%= estudiante.get("id_inscripcion") %>"
+                                                                value="<%= estudiante.get("examen_parcial") %>">
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" step="0.01" min="0" max="20" class="form-control form-control-sm form-control-grade"
+                                                                name="examen_final_<%= estudiante.get("id_inscripcion") %>"
+                                                                value="<%= estudiante.get("examen_final") %>">
+                                                        </td>
+                                                        <td>
+                                                            <span class="badge
+                                                                <% if ("aprobado".equals(estudiante.get("estado_nota"))) { %> bg-success
+                                                                <% } else if ("desaprobado".equals(estudiante.get("estado_nota"))) { %> bg-danger
+                                                                <% } else { %> bg-secondary <% } %>">
+                                                                <%= estudiante.get("nota_final") %>
+                                                            </span>
+                                                        </td>
+                                                        <td>
+                                                            <span class="badge
+                                                                <% if ("aprobado".equals(estudiante.get("estado_nota"))) { %> bg-success
+                                                                <% } else if ("desaprobado".equals(estudiante.get("estado_nota"))) { %> bg-danger
+                                                                <% } else { %> bg-secondary <% } %>">
+                                                                <%= estudiante.get("estado_nota") %>
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                <% } %>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    <div class="text-center mt-4 d-flex justify-content-center gap-3">
+                                        <button type="submit" class="btn btn-action-custom btn-primary">
+                                            <i class="fas fa-save"></i> Guardar Notas
+                                        </button>
+                                        <a href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/nota_profesor.jsp" class="btn btn-action-custom btn-secondary">
+                                            <i class="fas fa-arrow-left"></i> Volver a Clases
+                                        </a>
+                                    </div>
+                                </form>
+                            <% } %>
+                        </div>
+                    </div>
+                <% } %>
+
+                <%-- New: Report Card Section --%>
+                <div class="card content-section report-section">
+                    <div class="card-body">
+                        <h2 class="card-title text-primary"><i class="fas fa-file-alt me-2"></i>Generar Reporte de Notas</h2>
+                        <p class="card-text text-muted">Acceda a los reportes detallados de las notas de sus alumnos para análisis o descarga.</p>
+                        <a href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/reporte_notas.jsp" class="btn btn-action-custom btn-warning-report mt-3">
+                            <i class="fas fa-chart-bar"></i> Ir a Reportes de Notas
+                        </a>
+                    </div>
+                </div>
+
+            </div> <%-- End of container-fluid --%>
         </div> <%-- End of main-content --%>
-    </div> <%-- End of container-fluid --%>
+    </div> <%-- End of app --%>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html>

@@ -4,48 +4,47 @@
 <%@ page session="true" %>
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 
-<%! // Métodos auxiliares o variables globales para el JSP
-    // No hay funciones auxiliares globales necesarias en este JSP, pero el bloque se mantiene.
+<%! // Métodos auxiliares reutilizables
+    private void closeDbResources(ResultSet rs, PreparedStatement pstmt) {
+        try { if (rs != null) rs.close(); } catch (SQLException e) { /* Ignored */ }
+        try { if (pstmt != null) pstmt.close(); } catch (SQLException e) { /* Ignored */ }
+    }
 %>
 
 <%
     // --- Variables para la información del profesor logueado ---
     Object idObj = session.getAttribute("id_profesor");
-    int idProfesor = -1; // Usamos idProfesor para ser más explícitos
+    String emailSesion = (String) session.getAttribute("email");
+    String rolUsuario = (String) session.getAttribute("rol");
+    int idProfesor = -1;
     String nombreProfesor = "";
     String emailProfesor = "";
-    String facultadProfesor = "No asignada"; // Valor por defecto
-    
-    if (idObj != null) {
-        idProfesor = Integer.parseInt(idObj.toString());
+    String facultadProfesor = "No asignada";
+    String pageLoadErrorMessage = null;
+
+    if (idObj != null && emailSesion != null && "profesor".equalsIgnoreCase(rolUsuario)) {
+        idProfesor = (idObj instanceof Integer) ? (Integer) idObj : Integer.parseInt(idObj.toString());
+        emailProfesor = emailSesion;
     } else {
-        // Si no hay ID de profesor en sesión, redirige al login
-        response.sendRedirect(request.getContextPath() + "/Plataforma.jsp"); // Ajusta la ruta a tu página de login
-        return; // Termina la ejecución del JSP
+        response.sendRedirect(request.getContextPath() + "/login.jsp");
+        return;
     }
 
     // --- Variables para la lógica de asistencia ---
-    String idClaseParam = request.getParameter("id_clase"); 
+    String idClaseParam = request.getParameter("id_clase");
     String nombreClase = "Clase No Seleccionada";
     String codigoClase = "";
     String aulaClase = "";
     String semestreClase = "";
     String anioAcademicoClase = "";
-    
-    String fechaActualDisplay = new java.text.SimpleDateFormat("dd/MM/yyyy").format(new java.util.Date());
-    String fechaActualDB = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date()); // Formato para la BD
-    
-    // Lista para almacenar las clases del profesor (para la vista inicial)
-    List<Map<String, String>> clasesDelProfesor = new ArrayList<>();
-    
-    // Lista para almacenar los estudiantes de una clase específica (para la toma de asistencia)
-    List<Map<String, String>> estudiantesDeClase = new ArrayList<>();
-    
-    // Mensajes de éxito/error después de guardar
-    String mensajeFeedback = "";
-    String tipoMensajeFeedback = ""; // 'success' o 'danger'
+    String fechaActualDisplay = LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+    String fechaActualDB = LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 
-    // --- Conexión y recursos de DB ---
+    List<Map<String, String>> clasesDelProfesor = new ArrayList<>();
+    List<Map<String, String>> estudiantesDeClase = new ArrayList<>();
+    String mensajeFeedback = "";
+    String tipoMensajeFeedback = "";
+
     Connection conn = null;
     PreparedStatement pstmt = null;
     ResultSet rs = null;
@@ -54,27 +53,23 @@
         Conexion conexionUtil = new Conexion();
         conn = conexionUtil.conecta();
 
-        // 1. Obtener información básica del profesor (similar a horarios.jsp)
+        // 1. Obtener información básica del profesor
         String sqlProfesor = "SELECT p.nombre, p.apellido_paterno, p.apellido_materno, p.email, f.nombre_facultad as facultad " +
-                             "FROM profesores p JOIN facultades f ON p.id_facultad = f.id_facultad " +
-                             "WHERE p.id_profesor = ?";
+                             "FROM profesores p LEFT JOIN facultades f ON p.id_facultad = f.id_facultad WHERE p.id_profesor = ?";
         pstmt = conn.prepareStatement(sqlProfesor);
         pstmt.setInt(1, idProfesor);
         rs = pstmt.executeQuery();
         if (rs.next()) {
             nombreProfesor = rs.getString("nombre") + " " + rs.getString("apellido_paterno") +
                              (rs.getString("apellido_materno") != null ? " " + rs.getString("apellido_materno") : "");
-            emailProfesor = rs.getString("email");
-            facultadProfesor = rs.getString("facultad");
+            facultadProfesor = rs.getString("facultad") != null ? rs.getString("facultad") : "No asignada";
         }
-        if (rs != null) rs.close();
-        if (pstmt != null) pstmt.close();
+        closeDbResources(rs, pstmt);
 
-        // --- INICIO LÓGICA DE PROCESAMIENTO POST (Guardar Asistencia) ---
+        // Guardar asistencia (POST)
         if ("POST".equalsIgnoreCase(request.getMethod()) && idClaseParam != null && !idClaseParam.isEmpty()) {
             int idClaseGuardar = Integer.parseInt(idClaseParam);
-            
-            // Re-verificar que esta clase pertenece al profesor logueado antes de guardar
+
             String sqlCheckClass = "SELECT COUNT(*) FROM clases WHERE id_clase = ? AND id_profesor = ?";
             pstmt = conn.prepareStatement(sqlCheckClass);
             pstmt.setInt(1, idClaseGuardar);
@@ -86,23 +81,18 @@
                 response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/asistencia.jsp?mensaje=" + java.net.URLEncoder.encode(mensajeFeedback, "UTF-8") + "&tipo=" + tipoMensajeFeedback);
                 return;
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
+            closeDbResources(rs, pstmt);
 
-            // Lógica para guardar/actualizar la asistencia
             int registrosAfectados = 0;
-            // Necesitamos los id_inscripcion de los alumnos en esta clase para iterar
             String sqlInscripcionesClase = "SELECT id_inscripcion FROM inscripciones WHERE id_clase = ? AND estado = 'inscrito'";
             pstmt = conn.prepareStatement(sqlInscripcionesClase);
             pstmt.setInt(1, idClaseGuardar);
             rs = pstmt.executeQuery();
-            
             List<String> idsInscripcionEnForm = new ArrayList<>();
             while(rs.next()) {
                 idsInscripcionEnForm.add(String.valueOf(rs.getInt("id_inscripcion")));
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
+            closeDbResources(rs, pstmt);
 
             String sqlInsert = "INSERT INTO asistencia (id_inscripcion, fecha, estado, observaciones) VALUES (?, ?, ?, ?)";
             String sqlUpdate = "UPDATE asistencia SET estado = ?, observaciones = ? WHERE id_inscripcion = ? AND fecha = ?";
@@ -110,49 +100,41 @@
             for (String idInscripcion : idsInscripcionEnForm) {
                 String estado = request.getParameter("estado_" + idInscripcion);
                 String observaciones = request.getParameter("observaciones_" + idInscripcion);
-                
-                if (estado == null) { // Si el radio button no fue seleccionado, asume ausente
-                    estado = "ausente";
-                }
-                if (observaciones == null) {
-                    observaciones = "";
-                }
+                if (estado == null) estado = "ausente"; // Default to ausente if not explicitly set
+                if (observaciones == null) observaciones = "";
 
                 try {
                     pstmt = conn.prepareStatement(sqlInsert);
                     pstmt.setString(1, idInscripcion);
-                    pstmt.setString(2, fechaActualDB); 
+                    pstmt.setString(2, fechaActualDB);
                     pstmt.setString(3, estado);
-                    pstmt.setString(4, observaciones.isEmpty() ? null : observaciones); // Guarda NULL si está vacío
+                    pstmt.setString(4, observaciones.isEmpty() ? null : observaciones);
                     pstmt.executeUpdate();
                     registrosAfectados++;
                 } catch (SQLException e) {
-                    // Si la inserción falla por clave duplicada (SQLState 23000 o similar para MySQL)
-                    if (e.getSQLState().startsWith("23")) { 
+                    if (e.getSQLState() != null && e.getSQLState().startsWith("23")) { // Check for unique constraint violation
                         pstmt = conn.prepareStatement(sqlUpdate);
                         pstmt.setString(1, estado);
                         pstmt.setString(2, observaciones.isEmpty() ? null : observaciones);
                         pstmt.setString(3, idInscripcion);
                         pstmt.setString(4, fechaActualDB);
                         int updatedRows = pstmt.executeUpdate();
-                        if (updatedRows > 0) {
-                            registrosAfectados++;
-                        } else {
-                            System.err.println("Advertencia: No se pudo actualizar la asistencia para id_inscripcion " + idInscripcion + " en la fecha " + fechaActualDB + ". Error: " + e.getMessage());
-                        }
+                        if (updatedRows > 0) registrosAfectados++;
                     } else {
-                        throw e; // Relanza otras excepciones SQL
+                        throw e; // Re-throw other SQL exceptions
                     }
                 } finally {
-                    if (pstmt != null) { try { pstmt.close(); } catch (SQLException ignore) {} } // Cerrar después de cada uso
+                    if (pstmt != null) try { pstmt.close(); } catch (SQLException ignore) {}
                 }
             }
             mensajeFeedback = "Asistencia guardada exitosamente para " + registrosAfectados + " alumnos.";
             tipoMensajeFeedback = "success";
+            // Important: Redirect to clear POST data and show message
+            response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/asistencia_profesor.jsp?id_clase=" + idClaseParam + "&mensaje=" + java.net.URLEncoder.encode(mensajeFeedback, "UTF-8") + "&tipo=" + tipoMensajeFeedback);
+            return;
+        }
 
-        } // Fin del bloque POST de procesamiento
-
-        // Recuperar mensaje de feedback si viene de una redirección previa
+        // Mensaje de feedback si viene de redirección previa (GET parameters)
         String mensajeParam = request.getParameter("mensaje");
         String tipoParam = request.getParameter("tipo");
         if (mensajeParam != null && !mensajeParam.isEmpty()) {
@@ -160,13 +142,10 @@
             tipoMensajeFeedback = tipoParam != null ? tipoParam : "";
         }
 
-        // --- INICIO LÓGICA DE VISUALIZACIÓN GET (o después de POST) ---
-        // Se ejecuta siempre, ya sea GET inicial o después de un POST
         if (idClaseParam == null || idClaseParam.isEmpty()) {
-            // Si no se ha seleccionado una clase, listar todas las clases del profesor
+            // Display list of classes to choose from
             String sqlClasesProfesor = "SELECT cl.id_clase, cu.nombre_curso, cl.seccion, cl.semestre, cl.año_academico, h.aula " +
-                                       "FROM clases cl " +
-                                       "JOIN cursos cu ON cl.id_curso = cu.id_curso " +
+                                       "FROM clases cl JOIN cursos cu ON cl.id_curso = cu.id_curso " +
                                        "JOIN horarios h ON cl.id_horario = h.id_horario " +
                                        "WHERE cl.id_profesor = ? AND cl.estado = 'activo' " +
                                        "ORDER BY cl.año_academico DESC, cl.semestre DESC, cu.nombre_curso, cl.seccion";
@@ -183,16 +162,12 @@
                 clase.put("aula", rs.getString("aula"));
                 clasesDelProfesor.add(clase);
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
-
+            closeDbResources(rs, pstmt);
         } else {
-            // Si se ha seleccionado una clase, mostrar sus estudiantes
-            int idClaseMostar = Integer.parseInt(idClaseParam); // Usar una variable diferente para evitar conflictos de nombre
-            // Obtener detalles de la clase seleccionada
+            // Display attendance form for selected class
+            int idClaseMostar = Integer.parseInt(idClaseParam);
             String sqlDetalleClase = "SELECT cu.nombre_curso, cu.codigo_curso, cl.seccion, h.aula, cl.semestre, cl.año_academico " +
-                                     "FROM clases cl " +
-                                     "JOIN cursos cu ON cl.id_curso = cu.id_curso " +
+                                     "FROM clases cl JOIN cursos cu ON cl.id_curso = cu.id_curso " +
                                      "JOIN horarios h ON cl.id_horario = h.id_horario " +
                                      "WHERE cl.id_clase = ? AND cl.id_profesor = ?";
             pstmt = conn.prepareStatement(sqlDetalleClase);
@@ -206,51 +181,43 @@
                 semestreClase = rs.getString("semestre");
                 anioAcademicoClase = String.valueOf(rs.getInt("año_academico"));
             } else {
-                // Si la clase no pertenece a este profesor o no existe, redirigir
-                response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/asistencia.jsp");
+                // Redirect if class is not found or doesn't belong to the professor
+                response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/asistencia_profesor.jsp");
                 return;
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
+            closeDbResources(rs, pstmt);
 
-            // Obtener lista de estudiantes inscritos en la clase seleccionada, incluyendo su asistencia de hoy
+            // Students of the selected class
             String sqlEstudiantes = "SELECT a.id_alumno, a.dni, a.nombre, a.apellido_paterno, a.apellido_materno, " +
                                     "i.id_inscripcion, sa.estado AS estado_asistencia, sa.observaciones " +
-                                    "FROM inscripciones i " +
-                                    "JOIN alumnos a ON i.id_alumno = a.id_alumno " +
-                                    "LEFT JOIN asistencia sa ON i.id_inscripcion = sa.id_inscripcion AND sa.fecha = ? " + // Usar fecha actual para el LEFT JOIN
+                                    "FROM inscripciones i JOIN alumnos a ON i.id_alumno = a.id_alumno " +
+                                    "LEFT JOIN asistencia sa ON i.id_inscripcion = sa.id_inscripcion AND sa.fecha = ? " +
                                     "WHERE i.id_clase = ? AND i.estado = 'inscrito' " +
                                     "ORDER BY a.apellido_paterno, a.apellido_materno, a.nombre";
             pstmt = conn.prepareStatement(sqlEstudiantes);
-            pstmt.setString(1, fechaActualDB); // Pasar la fecha actual a la consulta
+            pstmt.setString(1, fechaActualDB);
             pstmt.setInt(2, idClaseMostar);
             rs = pstmt.executeQuery();
-            
+
             while (rs.next()) {
                 Map<String, String> estudiante = new HashMap<>();
                 estudiante.put("id_inscripcion", String.valueOf(rs.getInt("id_inscripcion")));
                 estudiante.put("dni", rs.getString("dni"));
                 estudiante.put("nombre_completo", rs.getString("nombre") + " " +
-                                                 rs.getString("apellido_paterno") + " " +
-                                                 (rs.getString("apellido_materno") != null ? rs.getString("apellido_materno") : ""));
+                                                   rs.getString("apellido_paterno") +
+                                                   (rs.getString("apellido_materno") != null ? " " + rs.getString("apellido_materno") : ""));
                 estudiante.put("estado_asistencia", rs.getString("estado_asistencia") != null ? rs.getString("estado_asistencia") : "");
                 estudiante.put("observaciones", rs.getString("observaciones") != null ? rs.getString("observaciones") : "");
                 estudiantesDeClase.add(estudiante);
             }
-            if (rs != null) rs.close();
-            if (pstmt != null) pstmt.close();
+            closeDbResources(rs, pstmt);
         }
 
-    } catch (Exception e) { // Captura cualquier excepción que ocurra
-        System.err.println("ERROR general en asistencia.jsp: " + e.getMessage());
+    } catch (Exception e) {
+        pageLoadErrorMessage = "Ocurrió un error inesperado: " + e.getMessage();
         e.printStackTrace();
-        mensajeFeedback = "Ocurrió un error inesperado: " + e.getMessage();
-        tipoMensajeFeedback = "danger";
     } finally {
-        // Asegurar cierre de recursos
-        try { if (rs != null) rs.close(); } catch (SQLException e) { e.printStackTrace(); }
-        try { if (pstmt != null) pstmt.close(); } catch (SQLException e) { e.printStackTrace(); }
-        try { if (conn != null) conn.close(); } catch (SQLException e) { e.printStackTrace(); }
+        try { if (conn != null) conn.close(); } catch (SQLException ignore) {}
     }
 %>
 
@@ -259,432 +226,394 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Asistencia de Alumnos - Sistema Universitario</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <title>Asistencia - Sistema Universitario</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary-color: #002366; /* Azul universitario oscuro */
-            --secondary-color: #FFD700; /* Dorado */
-            --accent-color: #800000; /* Granate */
-            --light-color: #F5F5F5;
-            --dark-color: #333333;
+            --admin-dark: #222B40;
+            --admin-light-bg: #F0F2F5;
+            --admin-card-bg: #FFFFFF;
+            --admin-text-dark: #333333;
+            --admin-text-muted: #6C757D;
+            --admin-primary: #007BFF;
+            --admin-success: #28A745;
+            --admin-danger: #DC3545;
+            --admin-warning: #FFC107;
+            --admin-info: #17A2B8;
+            --admin-secondary-color: #6C757D;
         }
-        
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f9f9f9;
-            color: var(--dark-color);
-        }
-        
-        .header {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1rem 2rem;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--admin-light-bg);
+            color: var(--admin-text-dark);
+            min-height: 100vh;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            flex-direction: column;
+            overflow-x: hidden; /* Prevent horizontal scroll */
         }
-        
-        .logo {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--secondary-color);
-        }
-        
-        .user-info {
-            text-align: right;
-        }
-        
-        .user-info p {
-            margin: 0.2rem 0;
-            font-size: 0.9rem;
-        }
-        
-        .user-name {
-            font-weight: bold;
-            color: var(--secondary-color);
-        }
-        
-        .container-fluid { /* Contenedor principal de la aplicación */
-            display: flex;
-            min-height: calc(100vh - 60px); /* Ajusta para el header */
-            padding: 0; /* Elimina padding horizontal */
-        }
-        
+        #app { display: flex; flex: 1; width: 100%; }
+        /* Sidebar */
         .sidebar {
-            width: 250px;
-            background-color: var(--primary-color);
+            width: 280px; background-color: var(--admin-dark); color: rgba(255,255,255,0.8); padding-top: 1rem; flex-shrink: 0;
+            position: sticky; top: 0; left: 0; height: 100vh; overflow-y: auto; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 1030;
+        }
+        .sidebar-header { padding: 1rem 1.5rem; margin-bottom: 1.5rem; text-align: center; font-size: 1.5rem; font-weight: 700; color: var(--admin-primary); border-bottom: 1px solid rgba(255,255,255,0.05);}
+        .sidebar .nav-link { display: flex; align-items: center; padding: 0.75rem 1.5rem; color: rgba(255,255,255,0.7); text-decoration: none; transition: all 0.2s ease-in-out; font-weight: 500;}
+        .sidebar .nav-link i { margin-right: 0.75rem; font-size: 1.1rem;}
+        .sidebar .nav-link:hover, .sidebar .nav-link.active { color: white; background-color: rgba(255,255,255,0.08); border-left: 4px solid var(--admin-primary); padding-left: 1.3rem;}
+        /* Main Content */
+        .main-content { flex: 1; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; }
+        .top-navbar {
+            background-color: var(--admin-card-bg); padding: 1rem 1.5rem; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+            margin-bottom: 1.5rem; border-radius: 0.5rem; display: flex; justify-content: flex-end; align-items: center; /* Adjusted to push items to the right */
+        }
+        .top-navbar .user-dropdown .dropdown-toggle {
+            display: flex; align-items: center; color: var(--admin-text-dark); text-decoration: none;
+        }
+        .top-navbar .user-dropdown .dropdown-toggle img { width: 32px; height: 32px; border-radius: 50%; margin-right: 0.5rem; object-fit: cover; border: 2px solid var(--admin-primary);}
+        .welcome-section { background-color: var(--admin-card-bg); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);}
+        .welcome-section h1 { color: var(--admin-text-dark); font-weight: 600; margin-bottom: 0.5rem;}
+        .welcome-section p.lead { color: var(--admin-text-muted); font-size: 1rem;}
+        .content-section.card { border-radius: 0.5rem; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); border-left: 4px solid var(--admin-primary);}
+        .section-title { color: var(--admin-primary); margin-bottom: 1rem; font-weight: 600;}
+
+        /* Alert Messages */
+        .alert-error-message { background-color: rgba(220,53,69,0.1); border-color: var(--admin-danger); color: var(--admin-danger);}
+        .alert-success-message { background-color: rgba(40,167,69,0.1); border-color: var(--admin-success); color: var(--admin-success);}
+
+        /* Professor Info Card */
+        .profesor-info .card-body p strong { color: var(--admin-text-dark); }
+
+        /* Class Selection Cards */
+        .class-card {
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            border: 1px solid #e0e0e0; /* subtle border */
+            border-left: 5px solid var(--admin-info); /* highlight color */
+            background-color: var(--admin-card-bg);
+            border-radius: 0.5rem;
+        }
+        .class-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 0.25rem 0.5rem rgba(0,0,0,0.1);
+            border-color: var(--admin-primary); /* stronger highlight on hover */
+        }
+        .class-card .card-title {
+            font-weight: 600;
+            color: var(--admin-primary);
+        }
+        .class-card .card-text {
+            font-size: 0.9rem;
+            color: var(--admin-text-muted);
+        }
+        .class-card .action-icon {
+            font-size: 1.5rem;
+            color: var(--admin-primary);
+        }
+
+        /* Attendance Table */
+        .table-asistencia {
+            margin-bottom: 1.5rem; /* Space below table before buttons */
+        }
+        .table-asistencia thead th {
+            background-color: var(--admin-primary);
             color: white;
-            padding: 1.5rem 0;
-            flex-shrink: 0; /* Evita que el sidebar se encoja */
+            font-weight: 600;
+            vertical-align: middle;
+            position: sticky; /* Make header sticky */
+            top: 0; /* Stick to the top of its scrolling container */
+            z-index: 1; /* Ensure it stays above table body */
         }
-        
-        .sidebar ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
+        .table-asistencia tbody td, .table-asistencia tbody th {
+            vertical-align: middle;
         }
-        
-        .sidebar li a {
-            display: block;
-            padding: 0.8rem 1.5rem;
+        .table-asistencia tbody tr:hover {
+            background-color: rgba(0, 123, 255, 0.05); /* Light blue on hover */
+        }
+
+        /* Attendance Radio Buttons (Custom Style) */
+        .btn-group-asistencia .btn-check + .btn {
+            padding: 0.5rem 0.75rem; /* Larger padding for better touch targets */
+            font-weight: 500;
+            border-radius: 0.375rem; /* Bootstrap default border-radius */
+        }
+        .btn-group-asistencia .btn-check:checked + .btn-outline-success {
+            background-color: var(--admin-success);
             color: white;
-            text-decoration: none;
-            transition: all 0.3s;
-            border-left: 4px solid transparent;
         }
-        
-        .sidebar li a:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-            border-left: 4px solid var(--secondary-color);
+        .btn-group-asistencia .btn-check:checked + .btn-outline-danger {
+            background-color: var(--admin-danger);
+            color: white;
         }
-        
-        .sidebar li a.active {
-            background-color: rgba(255, 255, 255, 0.2);
-            border-left: 4px solid var(--secondary-color);
-            font-weight: bold;
+        .btn-group-asistencia .btn-check:checked + .btn-outline-warning {
+            background-color: var(--admin-warning);
+            color: white;
         }
-        
-        .main-content {
-            flex-grow: 1; /* Permite que el contenido principal ocupe el espacio restante */
-            padding: 2rem; /* Mantiene el padding interno para el contenido */
-            overflow-y: auto; /* Para desplazamiento si el contenido es largo */
+        .btn-group-asistencia .btn-check:checked + .btn-outline-info {
+            background-color: var(--admin-info);
+            color: white;
         }
-        
-        .info-card { /* Tarjetas generales de información */
-            background-color: white;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            border-left: 4px solid var(--secondary-color);
+
+        /* Floating Label for Observations */
+        .form-floating > .form-control-sm {
+            height: calc(2.5rem + 2px); /* Adjusted height for sm input with floating label */
+            padding-top: 1rem;
+            padding-bottom: 0.5rem;
         }
-        
-        .info-card h1, .info-card h2, .info-card h3 {
-            color: var(--primary-color);
-            margin-top: 0;
+        .form-floating > label {
+            padding-top: 0.75rem; /* Adjusted label padding */
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--admin-text-muted);
+        }
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: var(--admin-secondary-color);
+        }
+        .empty-state h4 {
+            color: var(--admin-text-dark);
+            font-weight: 500;
             margin-bottom: 1rem;
         }
 
-        .profesor-info-card { /* Estilo específico para la info del profesor */
-            border-top: 4px solid var(--primary-color);
-            border-left: none; /* Anula el border-left de .info-card si aplica */
+        /* Responsive Adjustments */
+        @media (max-width: 992px) { /* Laptops and larger tablets */
+            .sidebar { width: 220px; }
+            .main-content { padding: 1rem; }
         }
-
-        .class-list-card { /* Estilo específico para la lista de clases */
-            border-top: 4px solid var(--accent-color);
-            border-left: none;
+        @media (max-width: 768px) { /* Tablets and mobiles */
+            #app { flex-direction: column; }
+            .sidebar {
+                width: 100%; height: auto; position: relative;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1); padding-bottom: 0.5rem;
+            }
+            .sidebar .nav-link { justify-content: center; padding: 0.6rem 1rem;}
+            .sidebar .nav-link i { margin-right: 0.5rem;}
+            .top-navbar { flex-direction: column; align-items: flex-start;}
+            .top-navbar .user-dropdown { width: 100%; text-align: center;}
+            .top-navbar .user-dropdown .dropdown-toggle { justify-content: center;}
+            .btn-group-asistencia { flex-wrap: wrap; justify-content: center; } /* Wrap buttons on small screens */
+            .btn-group-asistencia .btn { flex-grow: 1; margin: 2px; } /* Give buttons some space */
         }
-
-        .attendance-form-card { /* Estilo específico para el formulario de asistencia */
-            border-top: 4px solid #28a745; /* Verde */
-            border-left: none;
-        }
-
-        .table-custom {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-        
-        .table-custom th {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1rem;
-            text-align: left;
-            font-weight: 600;
-        }
-        
-        .table-custom td {
-            padding: 1rem;
-            border-bottom: 1px solid #eee;
-            vertical-align: middle;
-        }
-        
-        .table-custom tr:hover {
-            background-color: #f8f9fa;
-        }
-        
-        .table-custom tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        
-        .table-custom tr:nth-child(even):hover {
-            background-color: #f0f0f0;
-        }
-
-        .btn-accion {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 5px;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-block;
-            transition: background-color 0.3s;
-        }
-        .btn-accion:hover {
-            background-color: var(--accent-color);
-        }
-
-        /* Estilos de botones de asistencia específicos (radio buttons) */
-        .btn-group-asistencia {
-            display: flex;
-            gap: 5px;
-        }
-        
-        .btn-asistencia {
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s;
-            border: 1px solid transparent;
-            text-align: center;
-        }
-        
-        .btn-presente { background-color: rgba(40, 167, 69, 0.2); color: #28a745; }
-        .btn-ausente { background-color: rgba(220, 53, 69, 0.2); color: #dc3545; }
-        .btn-tardanza { background-color: rgba(255, 193, 7, 0.2); color: #ffc107; }
-        .btn-justificado { background-color: rgba(0, 123, 255, 0.2); color: #007bff; } /* Añadido justificado */
-        
-        input[type="radio"] { display: none; }
-        
-        input[type="radio"]:checked + .btn-presente { background-color: #28a745; color: white; }
-        input[type="radio"]:checked + .btn-ausente { background-color: #dc3545; color: white; }
-        input[type="radio"]:checked + .btn-tardanza { background-color: #ffc107; color: white; }
-        input[type="radio"]:checked + .btn-justificado { background-color: #007bff; color: white; } /* Añadido justificado */
-
-        .form-control-custom { /* Para el input de observaciones */
-            width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-
-        .btn-guardar-asistencia {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-            font-weight: 500;
-        }
-        .btn-guardar-asistencia:hover {
-            background-color: var(--accent-color);
-        }
-
-        .no-data-message {
-            text-align: center;
-            padding: 2rem;
-            color: #6c757d;
-            font-style: italic;
-        }
-
-        .logout-btn {
-            background-color: var(--accent-color);
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        .logout-btn:hover {
-            background-color: #990000;
-        }
-
-        /* Mensajes de feedback */
-        .alert-custom {
-            padding: 1rem;
-            margin-bottom: 1.5rem;
-            border: 1px solid transparent;
-            border-radius: 0.25rem;
-        }
-        .alert-success-custom {
-            color: #0f5132;
-            background-color: #d1e7dd;
-            border-color: #badbcc;
-        }
-        .alert-danger-custom {
-            color: #842029;
-            background-color: #f8d7da;
-            border-color: #f5c2c7;
+        @media (max-width: 576px) { /* Small mobiles */
+            .main-content { padding: 0.75rem; }
+            .welcome-section, .card { padding: 1rem; }
+            .btn-group-asistencia .btn { min-width: unset; padding: 0.4rem 0.6rem; } /* Even smaller buttons */
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="logo">Sistema Universitario</div>
-        <div class="user-info">
-            <p class="user-name"><%= nombreProfesor %></p>
-            <p><%= emailProfesor %></p>
-            <p><%= facultadProfesor %></p>
-            <form action="logout.jsp" method="post">
-                <button type="submit" class="logout-btn">Cerrar sesión</button>
-            </form>
+<div id="app">
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <a href="home_profesor.jsp" class="text-white text-decoration-none">UGIC Portal</a>
         </div>
-    </div>
-    
-    <div class="container-fluid">
-        <div class="sidebar">
-            <ul>
-                <li><a href="home_profesor.jsp">Inicio</a></li>
-                <li><a href="facultad_profesor.jsp">Facultades</a></li>
-                <li><a href="carreras_profesor.jsp">Carreras</a></li>
-                <li><a href="cursos_profesor.jsp">Cursos</a></li>
-                <li><a href="salones_profesor.jsp">Clases</a></li> 
-                <li><a href="horarios_profesor.jsp">Horarios</a></li> 
-                <li><a href="asistencia_profesor.jsp" class="active">Asistencia</a></li> 
-                <li><a href="mensaje_profesor.jsp">Mensajería</a></li>
-                <li><a href="nota_profesor.jsp">Notas</a></li>
-            </ul>
-        </div>
-        
-        <div class="main-content">
-            <div class="info-card">
-                <h1>Registro de Asistencia</h1>
-                <p>Aquí puede tomar o revisar la asistencia de sus alumnos.</p>
+        <ul class="navbar-nav">
+            <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/home_profesor.jsp"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/facultad_profesor.jsp"><i class="fas fa-building"></i> Facultades</a></li>
+            <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/carreras_profesor.jsp"><i class="fas fa-graduation-cap"></i> Carreras</a></li>
+            <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/cursos_profesor.jsp"><i class="fas fa-book"></i> Cursos</a></li>
+            <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/salones_profesor.jsp"><i class="fas fa-chalkboard"></i> Clases</a></li>
+            <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/horarios_profesor.jsp"><i class="fas fa-calendar-alt"></i> Horarios</a></li>
+            <li class="nav-item"><a class="nav-link active" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/asistencia_profesor.jsp"><i class="fas fa-clipboard-check"></i> Asistencia</a></li>
+            <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/mensaje_profesor.jsp"><i class="fas fa-envelope"></i> Mensajería</a></li>
+            <li class="nav-item"><a class="nav-link" href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/nota_profesor.jsp"><i class="fas fa-percent"></i> Notas</a></li>
+            <li class="nav-item mt-3">
+                <form action="<%= request.getContextPath() %>/logout.jsp" method="post" class="d-grid gap-2">
+                    <button type="submit" class="btn btn-outline-light mx-3"><i class="fas fa-sign-out-alt me-2"></i> Cerrar sesión</button>
+                </form>
+            </li>
+        </ul>
+    </nav>
+    <div class="main-content">
+        <nav class="top-navbar">
+            <%-- Removed search bar for simplicity in this specific page, can be added back if needed --%>
+            <div class="d-flex align-items-center">
+                <%-- Notifications and Messages (can be re-added from dashboard if needed) --%>
+                <div class="dropdown user-dropdown">
+                    <a class="dropdown-toggle d-flex align-items-center" href="#" role="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <img src="https://via.placeholder.com/32" alt="Avatar">
+                        <span class="d-none d-md-inline-block"><%= nombreProfesor %></span>
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                        <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Perfil</a></li>
+                        <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Configuración</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="<%= request.getContextPath() %>/logout.jsp"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</a></li>
+                    </ul>
+                </div>
             </div>
+        </nav>
 
-            <% if (!mensajeFeedback.isEmpty()) { %>
-                <div class="alert-custom alert-<%= tipoMensajeFeedback %>-custom" role="alert">
+        <div class="container-fluid">
+            <div class="welcome-section">
+                <h1 class="h3 mb-3"><i class="fas fa-clipboard-check me-2"></i>Registro de Asistencia</h1>
+                <p class="lead">Toma y revisa la asistencia de tus alumnos de forma sencilla.</p>
+            </div>
+            <% if (pageLoadErrorMessage != null) { %>
+                <div class="alert alert-danger alert-error-message" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>Error al cargar la página: <%= pageLoadErrorMessage %>
+                </div>
+            <% } %>
+            <% if (!mensajeFeedback.isEmpty()) {
+                String alertClass = "success".equals(tipoMensajeFeedback) ? "alert-success-message" : "alert-error-message";
+            %>
+                <div class="alert alert-<%= tipoMensajeFeedback %> <%= alertClass %> alert-dismissible fade show" role="alert">
                     <%= mensajeFeedback %>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
             <% } %>
 
-            <div class="info-card profesor-info-card">
-                <h3>Información del Profesor</h3>
-                <p><strong>Nombre:</strong> <%= nombreProfesor %></p>
-                <p><strong>Email:</strong> <%= emailProfesor %></p>
-                <p><strong>Facultad:</strong> <%= facultadProfesor %></p>
+            <div class="row">
+                <div class="col-12 mb-4"> <%-- Made professor info always full width for this page --%>
+                    <div class="card content-section">
+                        <div class="card-body">
+                            <h5 class="card-title mb-3 text-primary"><i class="fas fa-user-circle me-2"></i>Información del Profesor</h5>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <p class="mb-1"><strong>Nombre:</strong> <%= nombreProfesor %></p>
+                                    <p class="mb-1"><strong>Email:</strong> <%= emailProfesor %></p>
+                                </div>
+                                <div class="col-md-6">
+                                    <p class="mb-1"><strong>Facultad:</strong> <%= facultadProfesor %></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            
+
             <% if (idClaseParam == null || idClaseParam.isEmpty()) { %>
-                <div class="info-card class-list-card">
-                    <h2>Seleccione una Clase para Tomar Asistencia</h2>
-                    <% if (clasesDelProfesor.isEmpty()) { %>
-                        <p class="no-data-message">No tiene clases asignadas actualmente.</p>
-                    <% } else { %>
-                        <table class="table-custom">
-                            <thead>
-                                <tr>
-                                    <th>Curso</th>
-                                    <th>Sección</th>
-                                    <th>Semestre</th>
-                                    <th>Aula</th>
-                                    <th>Acción</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+                <div class="card content-section mb-4">
+                    <div class="card-header bg-white border-bottom-0 pt-4">
+                        <h5 class="card-title mb-0 section-title"><i class="fas fa-chalkboard me-2"></i>Seleccione una Clase para Registrar Asistencia</h5>
+                    </div>
+                    <div class="card-body">
+                        <% if (clasesDelProfesor.isEmpty()) { %>
+                            <div class="empty-state">
+                                <i class="fas fa-exclamation-circle"></i>
+                                <h4>No tiene clases asignadas actualmente.</h4>
+                                <p class="text-muted">Por favor, contacte con administración si cree que esto es un error.</p>
+                            </div>
+                        <% } else { %>
+                            <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4"> <%-- Grid for class cards --%>
                                 <% for (Map<String, String> clase : clasesDelProfesor) { %>
-                                    <tr>
-                                        <td><%= clase.get("nombre_curso") %> (<%= clase.get("anio_academico") %>)</td>
-                                        <td><%= clase.get("seccion") %></td>
-                                        <td><%= clase.get("semestre") %></td>
-                                        <td><%= clase.get("aula") %></td>
-                                        <td>
-                                            <a href="asistencia_profesor.jsp?id_clase=<%= clase.get("id_clase") %>" class="btn-accion">
-                                                Tomar Asistencia
-                                            </a>
-                                        </td>
-                                    </tr>
+                                    <div class="col">
+                                        <a href="asistencia_profesor.jsp?id_clase=<%= clase.get("id_clase") %>" class="text-decoration-none">
+                                            <div class="card h-100 class-card">
+                                                <div class="card-body d-flex flex-column">
+                                                    <h5 class="card-title"><%= clase.get("nombre_curso") %></h5>
+                                                    <p class="card-text mb-1"><strong>Sección:</strong> <%= clase.get("seccion") %></p>
+                                                    <p class="card-text mb-1"><strong>Semestre:</strong> <%= clase.get("semestre") %> (<%= clase.get("anio_academico") %>)</p>
+                                                    <p class="card-text mb-2"><strong>Aula:</strong> <%= clase.get("aula") %></p>
+                                                    <div class="mt-auto text-end">
+                                                        <i class="fas fa-arrow-circle-right action-icon"></i>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </a>
+                                    </div>
                                 <% } %>
-                            </tbody>
-                        </table>
-                    <% } %>
+                            </div>
+                        <% } %>
+                    </div>
                 </div>
             <% } else { %>
-                <div class="info-card attendance-form-card">
-                    <div class="d-flex justify-content-between align-items-center mb-3 pb-3 border-bottom">
-                        <h2 class="h5 mb-0 text-primary">Asistencia de <%= nombreClase %> (<%= codigoClase %> - <%= aulaClase %>)</h2>
-                        <span class="text-muted"><i class="bi bi-calendar-date"></i> Fecha: <%= fechaActualDisplay %></span>
-                    </div>
-
-                    <% if (estudiantesDeClase.isEmpty()) { %>
-                        <p class="no-data-message">No hay alumnos inscritos en esta clase o la clase no fue encontrada para su profesor.</p>
-                        <div class="text-center mt-4">
-                            <a href="asistencia_profesor.jsp" class="btn-accion">Volver a Clases</a>
+                <div class="card content-section mb-4">
+                    <div class="card-header d-flex flex-wrap justify-content-between align-items-center bg-white border-bottom-0 pt-4">
+                        <h5 class="card-title mb-2 section-title"><i class="fas fa-chalkboard-teacher me-2"></i>Asistencia de <%= nombreClase %></h5>
+                        <span class="text-muted fs-6"><i class="fas fa-calendar-alt me-1"></i> Fecha: <%= fechaActualDisplay %></span>
+                        <div class="w-100 text-muted mt-1">
+                            <small>Código: <%= codigoClase %> | Aula: <%= aulaClase %> | Semestre: <%= semestreClase %> (<%= anioAcademicoClase %>)</small>
                         </div>
-                    <% } else { %>
-                        <form method="post" action="asistencia_profesor.jsp?id_clase=<%= idClaseParam %>"> <input type="hidden" name="fecha_asistencia_db" value="<%= fechaActualDB %>">
-                            
-                            <table class="table-custom">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>DNI</th>
-                                        <th>Nombre Completo</th>
-                                        <th>Estado</th>
-                                        <th>Observaciones</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <% int contador = 1; %>
-                                    <% for (Map<String, String> estudiante : estudiantesDeClase) { %>
-                                        <tr>
-                                            <td><%= contador++ %></td>
-                                            <td><%= estudiante.get("dni") %></td>
-                                            <td><%= estudiante.get("nombre_completo") %></td>
-                                            <td>
-                                                <div class="btn-group-asistencia">
-                                                    <input type="radio" id="presente_<%= estudiante.get("id_inscripcion") %>" 
-                                                           name="estado_<%= estudiante.get("id_inscripcion") %>" 
-                                                           value="presente" <%= "presente".equals(estudiante.get("estado_asistencia")) ? "checked" : "" %>>
-                                                    <label for="presente_<%= estudiante.get("id_inscripcion") %>" 
-                                                           class="btn-asistencia btn-presente">P</label>
-                                                    
-                                                    <input type="radio" id="ausente_<%= estudiante.get("id_inscripcion") %>" 
-                                                           name="estado_<%= estudiante.get("id_inscripcion") %>" 
-                                                           value="ausente" <%= "ausente".equals(estudiante.get("estado_asistencia")) ? "checked" : "" %>>
-                                                    <label for="ausente_<%= estudiante.get("id_inscripcion") %>" 
-                                                           class="btn-asistencia btn-ausente">F</label>
-                                                    
-                                                    <input type="radio" id="tardanza_<%= estudiante.get("id_inscripcion") %>" 
-                                                           name="estado_<%= estudiante.get("id_inscripcion") %>" 
-                                                           value="tardanza" <%= "tardanza".equals(estudiante.get("estado_asistencia")) ? "checked" : "" %>>
-                                                    <label for="tardanza_<%= estudiante.get("id_inscripcion") %>" 
-                                                           class="btn-asistencia btn-tardanza">T</label>
-
-                                                    <input type="radio" id="justificado_<%= estudiante.get("id_inscripcion") %>" 
-                                                           name="estado_<%= estudiante.get("id_inscripcion") %>" 
-                                                           value="justificado" <%= "justificado".equals(estudiante.get("estado_asistencia")) ? "checked" : "" %>>
-                                                    <label for="justificado_<%= estudiante.get("id_inscripcion") %>" 
-                                                           class="btn-asistencia btn-justificado">J</label>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <input type="text" class="form-control-custom" 
-                                                       name="observaciones_<%= estudiante.get("id_inscripcion") %>" 
-                                                       value="<%= estudiante.get("observaciones") != null ? estudiante.get("observaciones") : "" %>">
-                                            </td>
-                                        </tr>
-                                    <% } %>
-                                </tbody>
-                            </table>
-                            
-                            <div class="text-center mt-4">
-                                <button type="submit" class="btn-guardar-asistencia">
-                                    Guardar Asistencia
-                                </button>
-                                <a href="asistencia_profesor.jsp" class="btn-accion ms-2">Volver a Clases</a>
+                    </div>
+                    <div class="card-body">
+                        <% if (estudiantesDeClase.isEmpty()) { %>
+                            <div class="empty-state">
+                                <i class="fas fa-user-times"></i>
+                                <h4>No hay alumnos inscritos en esta clase para registrar asistencia hoy.</h4>
+                                <p class="text-muted">Verifique las inscripciones o regrese más tarde.</p>
+                                <div class="mt-4">
+                                    <a href="asistencia_profesor.jsp" class="btn btn-secondary btn-lg"><i class="fas fa-arrow-left me-2"></i> Volver a Clases</a>
+                                </div>
                             </div>
-                        </form>
-                    <% } %>
+                        <% } else { %>
+                            <form method="post" action="asistencia_profesor.jsp?id_clase=<%= idClaseParam %>">
+                                <input type="hidden" name="fecha_asistencia_db" value="<%= fechaActualDB %>">
+                                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;"> <%-- Added scroll for table --%>
+                                    <table class="table table-hover table-asistencia caption-top">
+                                        <caption>Lista de Alumnos</caption>
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>DNI</th>
+                                                <th>Nombre Completo</th>
+                                                <th class="text-center" style="min-width: 150px;">Estado</th>
+                                                <th style="min-width: 200px;">Observaciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <% int contador = 1; %>
+                                            <% for (Map<String, String> estudiante : estudiantesDeClase) { %>
+                                                <tr>
+                                                    <td><%= contador++ %></td>
+                                                    <td><%= estudiante.get("dni") %></td>
+                                                    <td><%= estudiante.get("nombre_completo") %></td>
+                                                    <td>
+                                                        <div class="btn-group btn-group-sm btn-group-asistencia w-100" role="group">
+                                                            <input type="radio" class="btn-check" id="presente_<%= estudiante.get("id_inscripcion") %>"
+                                                                name="estado_<%= estudiante.get("id_inscripcion") %>" value="presente" autocomplete="off"
+                                                                <%= "presente".equals(estudiante.get("estado_asistencia")) ? "checked" : "" %>>
+                                                            <label class="btn btn-outline-success" for="presente_<%= estudiante.get("id_inscripcion") %>">P</label>
+
+                                                            <input type="radio" class="btn-check" id="ausente_<%= estudiante.get("id_inscripcion") %>"
+                                                                name="estado_<%= estudiante.get("id_inscripcion") %>" value="ausente" autocomplete="off"
+                                                                <%= "ausente".equals(estudiante.get("estado_asistencia")) || estudiante.get("estado_asistencia").isEmpty() ? "checked" : "" %>> <%-- Default to Ausente --%>
+                                                            <label class="btn btn-outline-danger" for="ausente_<%= estudiante.get("id_inscripcion") %>">F</label>
+
+                                                            <input type="radio" class="btn-check" id="tardanza_<%= estudiante.get("id_inscripcion") %>"
+                                                                name="estado_<%= estudiante.get("id_inscripcion") %>" value="tardanza" autocomplete="off"
+                                                                <%= "tardanza".equals(estudiante.get("estado_asistencia")) ? "checked" : "" %>>
+                                                            <label class="btn btn-outline-warning" for="tardanza_<%= estudiante.get("id_inscripcion") %>">T</label>
+
+                                                            <input type="radio" class="btn-check" id="justificado_<%= estudiante.get("id_inscripcion") %>"
+                                                                name="estado_<%= estudiante.get("id_inscripcion") %>" value="justificado" autocomplete="off"
+                                                                <%= "justificado".equals(estudiante.get("estado_asistencia")) ? "checked" : "" %>>
+                                                            <label class="btn btn-outline-info" for="justificado_<%= estudiante.get("id_inscripcion") %>">J</label>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="form-floating">
+                                                            <input type="text" class="form-control form-control-sm" id="observaciones_<%= estudiante.get("id_inscripcion") %>"
+                                                                name="observaciones_<%= estudiante.get("id_inscripcion") %>" placeholder="Observaciones"
+                                                                value="<%= estudiante.get("observaciones") != null ? estudiante.get("observaciones") : "" %>">
+                                                            <label for="observaciones_<%= estudiante.get("id_inscripcion") %>">Observaciones</label>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            <% } %>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="mt-4 d-flex flex-wrap gap-3 justify-content-center">
+                                    <button type="submit" class="btn btn-primary btn-lg px-4"><i class="fas fa-save me-2"></i> Guardar Asistencia</button>
+                                    <a href="asistencia_profesor.jsp" class="btn btn-secondary btn-lg px-4"><i class="fas fa-arrow-left me-2"></i> Volver a Clases</a>
+                                </div>
+                            </form>
+                        <% } %>
+                    </div>
                 </div>
             <% } %>
         </div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

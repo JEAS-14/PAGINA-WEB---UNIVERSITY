@@ -1,8 +1,9 @@
-<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
 <%
-    // Invalida la sesión actual
+    // Invalidate the current session
     session.invalidate();
 
-    // Redirige al usuario a la página Plataforma.jsp (o la ruta completa si es diferente)
-    response.sendRedirect("Plataforma.jsp");
+    // Redirect to plantilla.jsp after invalidating the session
+    // It's good practice to use request.getContextPath() for portability
+    response.sendRedirect(request.getContextPath() + "/Plataforma.jsp");
 %>

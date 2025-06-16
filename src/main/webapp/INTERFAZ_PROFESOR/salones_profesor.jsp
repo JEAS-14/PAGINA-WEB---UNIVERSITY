@@ -1,6 +1,30 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ page import="java.sql.*, java.util.*, pe.universidad.util.Conexion" %>
+<%@ page import="java.util.Base64" %>
 <%@ page session="true" %>
+
+<%!
+    // Método auxiliar para cerrar ResultSet y PreparedStatement de forma segura.
+    private void closeDbResources(ResultSet rs, PreparedStatement pstmt) {
+        try {
+            if (rs != null) {
+                rs.close();
+            }
+        } catch (SQLException e) {
+            System.err.println("Error al cerrar ResultSet: " + e.getMessage());
+        }
+        try {
+            if (pstmt != null) {
+                pstmt.close();
+            }
+        } catch (SQLException e) {
+            System.err.println("Error al cerrar PreparedStatement: " + e.getMessage());
+        }
+    }
+
+    // Declaración de variable a nivel de clase (generada en el servlet)
+    String globalDbErrorMessage = null;
+%>
 
 <%
     // --- VALIDACIÓN DE SESIÓN INICIAL ---
@@ -10,16 +34,16 @@
 
     // Redirigir si el usuario no está logueado, no es profesor o no tiene un ID de profesor en sesión
     if (emailSesion == null || !"profesor".equalsIgnoreCase(rolUsuario) || idProfesorObj == null) {
-        response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/login.jsp"); // Ajusta esta ruta si es diferente
+        response.sendRedirect(request.getContextPath() + "/login.jsp");
         return;
     }
 
     // Datos del profesor logueado, obtenidos de la sesión
-    int idProfesor = -1; // Usamos 'idProfesor' para toda la lógica
+    int idProfesor = -1;
     if (idProfesorObj instanceof Integer) {
         idProfesor = (Integer) idProfesorObj;
     } else {
-        response.sendRedirect(request.getContextPath() + "/INTERFAZ_PROFESOR/login.jsp");
+        response.sendRedirect(request.getContextPath() + "/login.jsp");
         return;
     }
 
@@ -29,75 +53,108 @@
 
     // Variables para estadísticas
     int totalClases = 0;
-    int totalAlumnos = 0; // Total de alumnos únicos inscritos en todas sus clases
-    int totalCapacidadClasesActivas = 0; // Para el cálculo del porcentaje de ocupación
-    int totalAlumnosEnClasesActivas = 0; // Para el cálculo del porcentaje de ocupación
+    int totalAlumnos = 0;
+    int totalCapacidadClasesActivas = 0;
+    int totalAlumnosEnClasesActivas = 0;
 
-    String globalDbErrorMessage = null;
+    // Variables para contadores de solicitudes (aunque no se usan en este JSP visualmente)
+    int totalPendingJoinRequests = 0;
+    int totalPendingLeaveRequests = 0;
 
-    Conexion conUtil = null;
+    String mensaje = "";
+    String tipoMensaje = "info";
+
     Connection conn = null;
-    PreparedStatement pstmt = null;
-    ResultSet rs = null;
 
     try {
-        conUtil = new Conexion();
+        Conexion conUtil = new Conexion();
         conn = conUtil.conecta();
 
         if (conn == null || conn.isClosed()) {
             throw new SQLException("No se pudo establecer conexión a la base de datos.");
         }
 
-        // --- Obtener información detallada del profesor ---
-        String sqlProfesorInfo = "SELECT CONCAT(p.nombre, ' ', p.apellido_paterno, ' ', IFNULL(p.apellido_materno, '')) AS nombre_completo, f.nombre_facultad as facultad "
-                                 + "FROM profesores p "
-                                 + "LEFT JOIN facultades f ON p.id_facultad = f.id_facultad "
-                                 + "WHERE p.id_profesor = ?";
-        pstmt = conn.prepareStatement(sqlProfesorInfo);
-        pstmt.setInt(1, idProfesor);
-        rs = pstmt.executeQuery();
+        // --- 1. Obtener información detallada del profesor ---
+        PreparedStatement pstmtProfesorInfo = null;
+        ResultSet rsProfesorInfo = null;
+        try {
+            String sqlProfesorInfo = "SELECT CONCAT(p.nombre, ' ', p.apellido_paterno, ' ', IFNULL(p.apellido_materno, '')) AS nombre_completo, f.nombre_facultad as facultad "
+                                   + "FROM profesores p "
+                                   + "LEFT JOIN facultades f ON p.id_facultad = f.id_facultad "
+                                   + "WHERE p.id_profesor = ?";
+            pstmtProfesorInfo = conn.prepareStatement(sqlProfesorInfo);
+            pstmtProfesorInfo.setInt(1, idProfesor);
+            rsProfesorInfo = pstmtProfesorInfo.executeQuery();
 
-        if (rs.next()) {
-            nombreProfesor = rs.getString("nombre_completo");
-            facultadProfesor = rs.getString("facultad") != null ? rs.getString("facultad") : "No asignada";
-        } else {
-            globalDbErrorMessage = "No se encontró información detallada para el profesor con ID " + idProfesor + ".";
+            if (rsProfesorInfo.next()) {
+                nombreProfesor = rsProfesorInfo.getString("nombre_completo");
+                facultadProfesor = rsProfesorInfo.getString("facultad") != null ? rsProfesorInfo.getString("facultad") : "No asignada";
+            } else {
+                globalDbErrorMessage = "No se encontró información detallada para el profesor con ID " + idProfesor + ".";
+            }
+        } finally {
+            closeDbResources(rsProfesorInfo, pstmtProfesorInfo);
         }
-        if (rs != null) { try { rs.close(); } catch (SQLException ignore) {} }
-        if (pstmt != null) { try { pstmt.close(); } catch (SQLException ignore) {} }
 
-        // --- Obtener estadísticas de clases para el profesor ---
-        String sqlStats = "SELECT "
-                          + "COUNT(DISTINCT cl.id_clase) as total_clases, "
-                          + "COUNT(DISTINCT i.id_alumno) as total_alumnos_unicos, "
-                          + "SUM(CASE WHEN cl.estado = 'activo' THEN cl.capacidad_maxima ELSE 0 END) as total_capacidad_clases_activas, "
-                          + "SUM(CASE WHEN cl.estado = 'activo' THEN "
-                          + "    (SELECT COUNT(*) FROM inscripciones sub_i WHERE sub_i.id_clase = cl.id_clase AND sub_i.estado = 'inscrito') "
-                          + "    ELSE 0 END) as total_alumnos_en_clases_activas "
-                          + "FROM clases cl "
-                          + "LEFT JOIN inscripciones i ON cl.id_clase = i.id_clase " 
-                          + "WHERE cl.id_profesor = ?";
-        pstmt = conn.prepareStatement(sqlStats);
-        pstmt.setInt(1, idProfesor);
-        rs = pstmt.executeQuery();
+        // --- 3. Obtener estadísticas de clases para el profesor ---
+        PreparedStatement pstmtStats = null;
+        ResultSet rsStats = null;
+        try {
+            String sqlStats = "SELECT "
+                              + "COUNT(DISTINCT cl.id_clase) as total_clases, "
+                              + "COUNT(DISTINCT i.id_alumno) as total_alumnos_unicos, "
+                              + "SUM(CASE WHEN cl.estado = 'activo' THEN cl.capacidad_maxima ELSE 0 END) as total_capacidad_clases_activas, "
+                              + "SUM(CASE WHEN cl.estado = 'activo' THEN "
+                              + "    (SELECT COUNT(*) FROM inscripciones sub_i WHERE sub_i.id_clase = cl.id_clase AND sub_i.estado = 'inscrito') "
+                              + "    ELSE 0 END) as total_alumnos_en_clases_activas "
+                              + "FROM clases cl "
+                              + "LEFT JOIN inscripciones i ON cl.id_clase = i.id_clase "
+                              + "WHERE cl.id_profesor = ?";
+            pstmtStats = conn.prepareStatement(sqlStats);
+            pstmtStats.setInt(1, idProfesor);
+            rsStats = pstmtStats.executeQuery();
 
-        if (rs.next()) {
-            totalClases = rs.getInt("total_clases");
-            totalAlumnos = rs.getInt("total_alumnos_unicos");
-            totalCapacidadClasesActivas = rs.getInt("total_capacidad_clases_activas");
-            totalAlumnosEnClasesActivas = rs.getInt("total_alumnos_en_clases_activas");
+            if (rsStats.next()) {
+                totalClases = rsStats.getInt("total_clases");
+                totalAlumnos = rsStats.getInt("total_alumnos_unicos");
+                totalCapacidadClasesActivas = rsStats.getInt("total_capacidad_clases_activas");
+                totalAlumnosEnClasesActivas = rsStats.getInt("total_alumnos_en_clases_activas");
+            }
+        } finally {
+            closeDbResources(rsStats, pstmtStats);
         }
-        if (rs != null) { try { rs.close(); } catch (SQLException ignore) {} }
-        if (pstmt != null) { try { pstmt.close(); } catch (SQLException ignore) {} }
+
+        // --- 4. Obtener Conteo de Solicitudes Pendientes ---
+        PreparedStatement pstmtPending = null;
+        ResultSet rsPending = null;
+        try {
+            String sqlPendingJoin = "SELECT COUNT(*) FROM solicitudes_cursos WHERE id_profesor = ? AND tipo_solicitud = 'UNIRSE' AND estado = 'PENDIENTE'";
+            pstmtPending = conn.prepareStatement(sqlPendingJoin);
+            pstmtPending.setInt(1, idProfesor);
+            rsPending = pstmtPending.executeQuery();
+            if (rsPending.next()) {
+                totalPendingJoinRequests = rsPending.getInt(1);
+            }
+            closeDbResources(rsPending, pstmtPending);
+
+            String sqlPendingLeave = "SELECT COUNT(*) FROM solicitudes_cursos WHERE id_profesor = ? AND tipo_solicitud = 'SALIR' AND estado = 'PENDIENTE'";
+            pstmtPending = conn.prepareStatement(sqlPendingLeave);
+            pstmtPending.setInt(1, idProfesor);
+            rsPending = pstmtPending.executeQuery();
+            if (rsPending.next()) {
+                totalPendingLeaveRequests = rsPending.getInt(1);
+            }
+        } finally {
+            closeDbResources(rsPending, pstmtPending);
+        }
 
     } catch (SQLException e) {
-        globalDbErrorMessage = "Error de base de datos en la carga inicial: " + e.getMessage();
+        globalDbErrorMessage = "Error de base de datos en la carga principal: " + e.getMessage();
         e.printStackTrace();
-    } catch (ClassNotFoundException e) {
-        globalDbErrorMessage = "Error: No se encontró el driver JDBC de MySQL. Asegúrate de que mysql-connector-java.jar esté en WEB-INF/lib.";
-        e.printStackTrace();
-    } finally {
-        // La conexión 'conn' NO se cierra aquí. Se mantendrá abierta para la tabla de clases
+    }
+    // Removed the ClassNotFoundException catch block here
+    finally {
+        // Connection 'conn' is closed at the very end of the JSP
     }
 %>
 
@@ -107,500 +164,653 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Clases del Profesor - Sistema Universitario</title>
-    <link rel="icon" type="image/x-icon" href="https://ejemplo.com/favicon.ico">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <style>
-        /* CSS completo de tu interfaz */
+        /* Your CSS styles (omitted for brevity, assume they are the same as before) */
         :root {
-            --primary-color: #002366; /* Azul universitario oscuro */
-            --secondary-color: #FFD700; /* Dorado */
-            --accent-color: #800000; /* Granate */
-            --light-color: #F5F5F5;
-            --dark-color: #333333;
+            --admin-dark: #222B40;
+            --admin-light-bg: #F0F2F5;
+            --admin-card-bg: #FFFFFF;
+            --admin-text-dark: #333333;
+            --admin-text-muted: #6C757D;
+            --admin-primary: #007BFF;
+            --admin-success: #28A745;
+            --admin-danger: #DC3545;
+            --admin-warning: #FFC107;
+            --admin-info: #17A2B8;
+            --admin-secondary-color: #6C757D;
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f9f9f9;
-            color: var(--dark-color);
+            font-family: 'Inter', sans-serif;
+            background-color: var(--admin-light-bg);
+            color: var(--admin-text-dark);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
         }
 
-        .header {
-            background-color: var(--primary-color);
+        #app {
+            display: flex;
+            flex: 1;
+            width: 100%;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background-color: var(--admin-dark);
+            color: rgba(255, 255, 255, 0.8);
+            padding-top: 1rem;
+            flex-shrink: 0;
+            position: sticky;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            overflow-y: auto;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            z-index: 1030;
+        }
+
+        .sidebar-header {
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--admin-primary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .sidebar .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            color: rgba(255, 255, 255, 0.7);
+            text-decoration: none;
+            transition: all 0.2s ease-in-out;
+            font-weight: 500;
+        }
+
+        .sidebar .nav-link i {
+            margin-right: 0.75rem;
+            font-size: 1.1rem;
+        }
+
+        .sidebar .nav-link:hover,
+        .sidebar .nav-link.active {
             color: white;
-            padding: 1rem 2rem;
+            background-color: rgba(255, 255, 255, 0.08);
+            border-left: 4px solid var(--admin-primary);
+            padding-left: 1.3rem;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Navbar */
+        .top-navbar {
+            background-color: var(--admin-card-bg);
+            padding: 1rem 1.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            margin-bottom: 1.5rem;
+            border-radius: 0.5rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
 
-        .logo {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: var(--secondary-color);
+        .top-navbar .search-bar .form-control {
+            border: 1px solid #e0e0e0;
+            border-radius: 0.3rem;
+            padding: 0.5rem 1rem;
         }
 
-        .user-info {
-            text-align: right;
-        }
-
-        .user-info p {
-            margin: 0.2rem 0;
-            font-size: 0.9rem;
-        }
-
-        .user-name {
-            font-weight: bold;
-            color: var(--secondary-color);
-        }
-
-        .container {
+        .top-navbar .user-dropdown .dropdown-toggle {
             display: flex;
-            min-height: calc(100vh - 60px);
-        }
-
-        .sidebar {
-            width: 250px;
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1.5rem 0;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-
-        .sidebar ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-
-        .sidebar li a {
-            display: block;
-            padding: 0.8rem 1.5rem;
-            color: white;
+            align-items: center;
+            color: var(--admin-text-dark);
             text-decoration: none;
-            transition: all 0.3s;
-            border-left: 4px solid transparent;
+        }
+        .top-navbar .user-dropdown .dropdown-toggle img {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+            object-fit: cover;
+            border: 2px solid var(--admin-primary);
         }
 
-        .sidebar li a:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-            border-left: 4px solid var(--secondary-color);
-        }
-
-        .sidebar li a.active {
-            background-color: rgba(255, 255, 255, 0.2);
-            border-left: 4px solid var(--secondary-color);
-            font-weight: bold;
-        }
-
-        .main-content {
-            flex: 1;
-            padding: 2rem;
-        }
-
+        /* Welcome Section */
         .welcome-section {
-            background-color: white;
-            border-radius: 8px;
+            background-color: var(--admin-card-bg);
+            border-radius: 0.5rem;
             padding: 1.5rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            border-left: 4px solid var(--secondary-color);
+            margin-bottom: 1.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
         }
-
         .welcome-section h1 {
-            color: var(--primary-color);
-            margin-top: 0;
+            color: var(--admin-text-dark);
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .welcome-section p.lead {
+            color: var(--admin-text-muted);
+            font-size: 1rem;
         }
 
-        .stats-grid { /* Usado para la cuadrícula de estadísticas */
+        /* General Content Card Styling */
+        .content-section.card {
+            border-radius: 0.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border-left: 4px solid var(--admin-primary); /* Consistent border */
+        }
+        .section-title {
+            color: var(--admin-primary);
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        /* Stats Grid for this page */
+        .stats-grid-clases {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); /* Adjusted for more stats */
             gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .stat-card {
-            background-color: white;
-            border-radius: 8px;
-            padding: 1.5rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            flex: 1; /* Si no está en grid */
-            text-align: center;
-            border-top: 4px solid var(--accent-color);
-        }
-
-        .stat-number {
-            font-size: 2rem;
-            font-weight: bold;
-            color: var(--primary-color);
-        }
-
-        .stat-label {
-            color: #666;
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }
-
-        .clases-section { /* Sección principal para la tabla de clases */
-            background-color: white;
-            border-radius: 8px;
-            padding: 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            border-top: 4px solid var(--primary-color);
-        }
-
-        .clases-section h2 {
-            color: var(--primary-color);
-            margin-top: 0;
             margin-bottom: 1.5rem;
         }
-
-        .clases-table { /* Tabla para listar clases */
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
+        .stats-card-clases {
+            border-radius: 0.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            height: 100%;
         }
-
-        .clases-table th {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1rem;
-            text-align: left;
-            font-weight: 600;
+        .stats-card-clases:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 0.25rem 0.5rem rgba(0,0,0,0.1);
         }
-
-        .clases-table td {
-            padding: 1rem;
-            border-bottom: 1px solid #eee;
-            vertical-align: middle;
+        .stats-card-clases .card-body {
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column; /* Stack content vertically */
+            align-items: center;
+            text-align: center;
         }
-
-        .clases-table tr:hover {
-            background-color: #f8f9fa;
+        .stats-card-clases .stat-icon {
+            font-size: 2rem;
+            color: var(--admin-primary);
+            margin-bottom: 0.5rem;
         }
-
-        .clases-table tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-
-        .clases-table tr:nth-child(even):hover {
-            background-color: #f0f0f0;
-        }
-
-        .badge {
-            padding: 0.35em 0.65em;
-            border-radius: 50rem;
-            font-size: 0.75em;
+        .stats-card-clases .value {
+            font-size: 2.2rem;
             font-weight: 700;
+            color: var(--admin-text-dark);
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+        .stats-card-clases .label {
+            font-size: 0.9rem;
+            color: var(--admin-text-muted);
         }
 
-        .badge-primary {
-            background-color: var(--primary-color);
-            color: white;
+        /* Table Styling */
+        .table {
+            color: var(--admin-text-dark);
         }
-        .badge-success { /* Para estado activo */
-            background-color: #28a745;
-            color: white;
+        .table thead th {
+            border-bottom: 2px solid var(--admin-primary);
+            color: var(--admin-primary);
+            font-weight: 600;
+            background-color: var(--admin-light-bg);
         }
-        .badge-secondary { /* Para estado inactivo/finalizado */
-            background-color: #6c757d;
-            color: white;
+        .table tbody tr:hover {
+            background-color: rgba(0, 123, 255, 0.05);
         }
-
-        .logout-btn {
-            background-color: var(--accent-color);
-            color: white;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-top: 0.5rem;
-            transition: background-color 0.3s;
+        .table-sm th, .table-sm td {
+            padding: 0.5rem;
         }
 
-        .logout-btn:hover {
-            background-color: #990000;
+        /* Badge Styles */
+        .badge {
+            font-weight: 500;
+            border-radius: 0.25rem;
+            padding: 0.35em 0.65em;
         }
+        .badge-success-custom { background-color: rgba(40, 167, 69, 0.1); color: var(--admin-success); border: 1px solid var(--admin-success); }
+        .badge-primary-custom { background-color: rgba(0, 123, 255, 0.1); color: var(--admin-primary); border: 1px solid var(--admin-primary); }
+        .badge-secondary-custom { background-color: rgba(108, 117, 125, 0.1); color: var(--admin-secondary-color); border: 1px solid var(--admin-secondary-color); }
 
-        .no-data {
+        /* Empty states / Error messages */
+        .empty-state {
             text-align: center;
             padding: 3rem;
-            color: #666;
-            font-style: italic;
+            color: var(--admin-text-muted);
+        }
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        .empty-state h4 {
+            color: var(--admin-text-dark);
+            margin-top: 1rem;
+        }
+        .alert-error-message {
+            background-color: rgba(220, 53, 69, 0.1);
+            border-color: var(--admin-danger);
+            color: var(--admin-danger);
         }
 
-        .info-box {
-            background-color: #e7f3ff;
-            border-left: 4px solid #17a2b8;
-            padding: 1rem;
-            margin-bottom: 2rem;
-            border-radius: 4px;
+        /* Modal specific styles */
+        #viewStudentsModal .modal-header {
+            background-color: var(--admin-primary);
+            color: white;
+            border-bottom: none;
+        }
+        #viewStudentsModal .modal-title {
+            color: white;
+        }
+        #viewStudentsModal .modal-footer {
+            border-top: none;
+        }
+        #viewStudentsModal .table th {
+            background-color: var(--admin-light-bg);
+            color: var(--admin-primary);
         }
 
-        .info-box h4 {
-            color: #0c5460;
-            margin-top: 0;
+        /* Custom button for 'Solicitar agregar clase' */
+        .btn-add-class {
+            background-color: var(--admin-primary);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1.1rem;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            text-decoration: none;
+        }
+        .btn-add-class:hover {
+            background-color: #0056b3;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+            color: white;
         }
 
-        .info-box p {
-            color: #0c5460;
-            margin-bottom: 0;
+
+        /* Responsive adjustments */
+        @media (max-width: 992px) {
+            .sidebar {
+                width: 220px;
+            }
+            .main-content {
+                padding: 1rem;
+            }
         }
 
-        /* Renombrados para clases */
-        .clase-id { 
-            font-weight: bold;
-            color: var(--primary-color);
-        }
-
-        .clase-name {
-            font-weight: 600;
-            color: var(--dark-color);
-        }
-
-        /* Responsividad */
         @media (max-width: 768px) {
-            .container {
+            #app {
                 flex-direction: column;
             }
-
             .sidebar {
                 width: 100%;
-                padding: 1rem 0;
+                height: auto;
+                position: relative;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                padding-bottom: 0.5rem;
             }
-
-            .stats-grid { /* También afectado por flex-direction: column */
+            .sidebar .nav-link {
+                justify-content: center;
+                padding: 0.6rem 1rem;
+            }
+            .sidebar .nav-link i {
+                margin-right: 0.5rem;
+            }
+            .top-navbar {
                 flex-direction: column;
+                align-items: flex-start;
             }
-
-            .clases-table {
-                font-size: 0.9rem;
+            .top-navbar .search-bar {
+                width: 100%;
+                margin-bottom: 1rem;
             }
+            .top-navbar .user-dropdown {
+                width: 100%;
+                text-align: center;
+            }
+            .top-navbar .user-dropdown .dropdown-toggle {
+                justify-content: center;
+            }
+            .stats-grid-clases {
+                grid-template-columns: 1fr;
+            }
+        }
 
-            .clases-table th,
-            .clases-table td {
-                padding: 0.75rem 0.5rem;
+        @media (max-width: 576px) {
+            .main-content {
+                padding: 0.75rem;
+            }
+            .welcome-section, .card {
+                padding: 1rem;
+            }
+            .stats-card-clases .value {
+                font-size: 1.8rem;
+            }
+            .btn-add-class {
+                font-size: 1rem;
+                padding: 0.6rem 1rem;
             }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="logo">Sistema Universitario</div>
-        <div class="user-info">
-            <p class="user-name"><%= nombreProfesor%></p>
-            <p><%= emailProfesor%></p>
-            <p><%= facultadProfesor%></p>
-            <form action="logout.jsp" method="post">
-                <button type="submit" class="logout-btn">Cerrar sesión</button>
-            </form>
-        </div>
-    </div>
+    <div id="app">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <a href="home_profesor.jsp" class="text-white text-decoration-none">UGIC Portal</a>
+            </div>
 
-    <div class="container">
-        <div class="sidebar">
-            <ul>
-                 <li><a href="home_profesor.jsp">Inicio</a></li>
-                <li><a href="facultad_profesor.jsp">Facultades</a></li>
-                <li><a href="carreras_profesor.jsp">Carreras</a></li>
-                <li><a href="cursos_profesor.jsp">Cursos</a></li>
-                <li><a href="salones_profesor.jsp" class="active">Clases</a></li> 
-                <li><a href="horarios_profesor.jsp">Horarios</a></li> 
-                <li><a href="asistencia_profesor.jsp">Asistencia</a></li>
-                <li><a href="mensaje_profesor.jsp">Mensajería</a></li>
-                <li><a href="nota_profesor.jsp">Notas</a></li>
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="home_profesor.jsp"><i class="fas fa-chart-line"></i><span> Dashboard</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="facultad_profesor.jsp"><i class="fas fa-building"></i><span> Facultades</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="carreras_profesor.jsp"><i class="fas fa-graduation-cap"></i><span> Carreras</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="cursos_profesor.jsp"><i class="fas fa-book"></i><span> Cursos</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="salones_profesor.jsp"><i class="fas fa-chalkboard"></i><span> Clases</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="horarios_profesor.jsp"><i class="fas fa-calendar-alt"></i><span> Horarios</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="asistencia_profesor.jsp"><i class="fas fa-clipboard-check"></i><span> Asistencia</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="mensaje_profesor.jsp"><i class="fas fa-envelope"></i><span> Mensajería</span></a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="nota_profesor.jsp"><i class="fas fa-percent"></i><span> Notas</span></a>
+                </li>
+                <li class="nav-item mt-3">
+                    <form action="logout.jsp" method="post" class="d-grid gap-2">
+                        <button type="submit" class="btn btn-outline-light mx-3"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</button>
+                    </form>
+                </li>
             </ul>
-        </div>
+        </nav>
 
         <div class="main-content">
-            <div class="welcome-section">
-                <h1>Mis Clases Asignadas</h1>
-                <p>Consulta las clases que tienes asignadas. Esta información es solo de lectura.</p>
-            </div>
-
-            <div class="info-box">
-                <h4>ℹ️ Información</h4>
-                <p>Aquí puedes ver todas las clases que impartes, con detalles del curso, horario y el número de alumnos inscritos.</p>
-            </div>
-            
-            <div class="stats-grid"> <%-- Cuadrícula de estadísticas --%>
-                <div class="stat-card" style="border-top-color: var(--primary-color);">
-                    <div class="stat-number"><%= totalClases %></div>
-                    <div class="stat-label">Total Clases Asignadas</div>
+            <nav class="top-navbar">
+                <div class="search-bar">
+                    <form class="d-flex">
+                        <input class="form-control me-2" type="search" placeholder="Buscar..." aria-label="Search">
+                        <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-search"></i></button>
+                    </form>
                 </div>
-                <div class="stat-card" style="border-top-color: #28a745;">
-                    <div class="stat-number"><%= totalAlumnos %></div>
-                    <div class="stat-label">Total Alumnos</div>
+                <div class="d-flex align-items-center">
+                    <div class="me-3 dropdown">
+                        <a class="text-dark" href="#" role="button" id="notificationsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-bell fa-lg"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                                3
+                            </span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="notificationsDropdown">
+                            <li><a class="dropdown-item" href="#">Nueva notificación</a></li>
+                            <li><a class="dropdown-item" href="#">Recordatorio</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#">Ver todas</a></li>
+                        </ul>
+                    </div>
+                    <div class="me-3 dropdown">
+                        <a class="text-dark" href="#" role="button" id="messagesDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-envelope fa-lg"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                                2
+                            </span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="messagesDropdown">
+                            <li><a class="dropdown-item" href="#">Mensaje de Alumno X</a></li>
+                            <li><a class="dropdown-item" href="#">Mensaje de Coordinación</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#">Ver todos</a></li>
+                        </ul>
+                    </div>
+
+                    <div class="dropdown user-dropdown">
+                        <a class="dropdown-toggle" href="#" role="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <img src="https://via.placeholder.com/32" alt="Avatar"> <span class="d-none d-md-inline-block"><%= nombreProfesor%></span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Perfil</a></li>
+                            <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Configuración</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="logout.jsp"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</a></li>
+                        </ul>
+                    </div>
                 </div>
-                <div class="stat-card" style="border-top-color: #fd7e14;">
-                    <%
-                        double porcentajeOcupacionGeneral = 0.0;
-                        if (totalCapacidadClasesActivas > 0) { // Asegurarse de que no dividimos por cero
-                            porcentajeOcupacionGeneral = ((double)totalAlumnosEnClasesActivas / totalCapacidadClasesActivas) * 100;
-                        }
-                    %>
-                    <div class="stat-number"><%= String.format("%.0f%%", porcentajeOcupacionGeneral) %></div>
-                    <div class="stat-label">Porcentaje Ocupación</div>
+            </nav>
+
+            <div class="container-fluid">
+                <div class="welcome-section">
+                    <h1 class="h3 mb-3">Gestión de Clases</h1>
+                    <p class="lead">Bienvenido al módulo de clases. Aquí puedes ver tus clases asignadas y gestionar a los estudiantes.</p>
                 </div>
-                <div class="stat-card" style="border-top-color: #6f42c1;">
-                    <div class="stat-number">N/A</div> <%-- Esta es otra métrica de ejemplo --%>
-                    <div class="stat-label">Clases Llenas</div>
+
+                <% // Mostrar mensaje de error global de la base de datos si existe
+                    if (globalDbErrorMessage != null) { %>
+                <div class="alert alert-danger alert-error-message" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>Error al cargar la página: <%= globalDbErrorMessage %>
                 </div>
-            </div>
+                <% } %>
 
-            <div class="clases-section">
-                <h2>Listado de Clases - <%= nombreProfesor%></h2>
+                <div class="row stats-grid-clases">
+                    <div class="col">
+                        <div class="card stats-card-clases" style="border-left: 4px solid var(--admin-primary);">
+                            <div class="card-body">
+                                <div class="stat-icon"><i class="fas fa-chalkboard"></i></div>
+                                <div class="value"><%= totalClases %></div>
+                                <div class="label">Total Clases Asignadas</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card stats-card-clases" style="border-left: 4px solid var(--admin-success);">
+                            <div class="card-body">
+                                <div class="stat-icon"><i class="fas fa-user-graduate"></i></div>
+                                <div class="value"><%= totalAlumnos %></div>
+                                <div class="label">Alumnos Únicos Inscritos</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card stats-card-clases" style="border-left: 4px solid var(--admin-info);">
+                            <div class="card-body">
+                                <div class="stat-icon"><i class="fas fa-chart-pie"></i></div>
+                                <%
+                                    double porcentajeOcupacionGeneral = 0.0;
+                                    if (totalCapacidadClasesActivas > 0) {
+                                        porcentajeOcupacionGeneral = ((double)totalAlumnosEnClasesActivas / totalCapacidadClasesActivas) * 100;
+                                    }
+                                %>
+                                <div class="value"><%= String.format("%.0f%%", porcentajeOcupacionGeneral) %></div>
+                                <div class="label">Ocupación Clases Activas</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card stats-card-clases" style="border-left: 4px solid var(--admin-warning);">
+                            <div class="card-body">
+                                <div class="stat-icon"><i class="fas fa-users-slash"></i></div>
+                                <div class="value">N/A</div> <%-- Placeholder for another relevant metric --%>
+                                <div class="label">Clases Llenas</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-                <%
-                    PreparedStatement pstmtClases = null;
-                    ResultSet rsClases = null;
-                    String classesLoadError = null; // Para errores específicos de esta tabla
+                <div class="row">
+                    <div class="col-12 mb-4">
+                        <div class="card content-section">
+                            <div class="card-body">
+                                <h3 class="section-title card-title"><i class="fas fa-list-ul me-2"></i>Detalle de Mis Clases</h3>
+                                <div class="table-responsive">
+                                    <table class="table table-hover table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Clase</th>
+                                                <th scope="col">Curso</th>
+                                                <th scope="col">Horario</th>
+                                                <th scope="col">Aula</th>
+                                                <th scope="col">Alumnos / Cap.</th>
+                                                <th scope="col">Estado</th>
+                                                <th scope="col">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <%
+                                                PreparedStatement localPstmtClases = null;
+                                                ResultSet localRsClases = null;
+                                                boolean hayClases = false;
+                                                try {
+                                                    if (conn != null && !conn.isClosed() && idProfesor != -1) {
+                                                        String sqlClases = "SELECT cl.id_clase, cl.seccion, cl.ciclo, cl.semestre, cl.año_academico, cl.estado AS clase_estado, cl.capacidad_maxima, "
+                                                                         + "cu.nombre_curso, cu.codigo_curso, "
+                                                                         + "h.dia_semana, h.hora_inicio, h.hora_fin, h.aula, "
+                                                                         + "(SELECT COUNT(*) FROM inscripciones i WHERE i.id_clase = cl.id_clase AND i.estado = 'inscrito') as alumnos_inscritos "
+                                                                         + "FROM clases cl "
+                                                                         + "INNER JOIN cursos cu ON cl.id_curso = cu.id_curso "
+                                                                         + "INNER JOIN horarios h ON cl.id_horario = h.id_horario "
+                                                                         + "WHERE cl.id_profesor = ? "
+                                                                         + "ORDER BY cl.año_academico DESC, cl.semestre DESC, cu.nombre_curso, cl.seccion";
 
-                    try {
-                        // Aseguramos que la conexión 'conn' esté abierta y válida
-                        if (conn == null || conn.isClosed()) {
-                            Conexion tempCon = new Conexion();
-                            conn = tempCon.conecta();
-                        }
+                                                        localPstmtClases = conn.prepareStatement(sqlClases);
+                                                        localPstmtClases.setInt(1, idProfesor);
+                                                        localRsClases = localPstmtClases.executeQuery();
 
-                        // Solo ejecutamos la consulta si la conexión 'conn' es válida y si idProfesor es válido
-                        if (conn != null && !conn.isClosed() && idProfesor != -1) { 
-                            String sqlClases = "SELECT cl.id_clase, cl.seccion, cl.ciclo, cl.semestre, cl.año_academico, cl.estado AS clase_estado, cl.capacidad_maxima, "
-                                               + "cu.nombre_curso, cu.codigo_curso, "
-                                               + "h.dia_semana, h.hora_inicio, h.hora_fin, h.aula, "
-                                               + "(SELECT COUNT(*) FROM inscripciones i WHERE i.id_clase = cl.id_clase AND i.estado = 'inscrito') as alumnos_inscritos "
-                                               + "FROM clases cl "
-                                               + "INNER JOIN cursos cu ON cl.id_curso = cu.id_curso "
-                                               + "INNER JOIN horarios h ON cl.id_horario = h.id_horario "
-                                               + "WHERE cl.id_profesor = ? "
-                                               + "ORDER BY cl.año_academico DESC, cl.semestre DESC, cu.nombre_curso, cl.seccion";
+                                                        while (localRsClases.next()) {
+                                                            hayClases = true;
+                                                            int idClase = localRsClases.getInt("id_clase");
+                                                            String estadoClase = localRsClases.getString("clase_estado");
+                                                            String badgeClass = "";
+                                                            if ("activo".equals(estadoClase)) {
+                                                                badgeClass = "badge-success-custom";
+                                                            } else if ("finalizado".equals(estadoClase)) {
+                                                                badgeClass = "badge-primary-custom";
+                                                            } else { // inactivo
+                                                                badgeClass = "badge-secondary-custom";
+                                                            }
 
-                            pstmtClases = conn.prepareStatement(sqlClases);
-                            pstmtClases.setInt(1, idProfesor); 
-                            rsClases = pstmtClases.executeQuery();
+                                                            int alumnosInscritos = localRsClases.getInt("alumnos_inscritos");
+                                                            int capacidadMaxima = localRsClases.getInt("capacidad_maxima");
+                                                %>
+                                            <tr>
+                                                <td>
+                                                    <strong><%= localRsClases.getString("seccion")%> - <%= localRsClases.getString("ciclo")%></strong>
+                                                    <br><small class="text-muted"><%= localRsClases.getString("semestre")%> / <%= localRsClases.getInt("año_academico")%></small>
+                                                </td>
+                                                <td>
+                                                    <%= localRsClases.getString("nombre_curso")%>
+                                                    <br><small class="text-muted">Código: <%= localRsClases.getString("codigo_curso")%></small>
+                                                </td>
+                                                <td>
+                                                    <%= localRsClases.getString("dia_semana")%><br>
+                                                    <%= localRsClases.getTime("hora_inicio")%> - <%= localRsClases.getTime("hora_fin")%>
+                                                </td>
+                                                <td><%= localRsClases.getString("aula") %></td>
+                                                <td><%= alumnosInscritos%> / <%= capacidadMaxima%></td>
+                                                <td><span class="badge <%= badgeClass%>"><%= estadoClase.toUpperCase()%></span></td>
+                                                <td>
+                                                    <a href="ver_estudiantes.jsp?id_clase=<%= idClase %>" class="btn btn-sm btn-primary">
+                                                        <i class="fas fa-eye me-1"></i> Ver Estudiantes
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                                <%
+                                                        } // Cierre de while
 
-                            boolean hayClases = false;
-                %>
-                <table class="clases-table">
-                    <thead>
-                        <tr>
-                            <th>Clase</th>
-                            <th>Curso</th>
-                            <th>Horario</th>
-                            <th>Aula</th>
-                            <th>Alumnos / Cap.</th>
-                            <th>Estado</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <%
-                            while (rsClases.next()) {
-                                hayClases = true;
-                                String estadoClase = rsClases.getString("clase_estado");
-                                String badgeClass = "";
-                                if ("activo".equals(estadoClase)) {
-                                    badgeClass = "badge-success";
-                                } else if ("finalizado".equals(estadoClase)) {
-                                    badgeClass = "badge-primary";
-                                } else { // inactivo
-                                    badgeClass = "badge-secondary";
-                                }
+                                                        if (!hayClases) {
+                                                %>
+                                            <tr>
+                                                <td colspan="7" class="empty-state">
+                                                    <i class="fas fa-exclamation-circle"></i>
+                                                    <h4>No tienes clases asignadas.</h4>
+                                                    <p>Contacta al administrador para la asignación de clases.</p>
+                                                </td>
+                                            </tr>
+                                                <%
+                                                        }
+                                                    }
+                                                    else if (idProfesor == -1) {
+                                                %>
+                                                <tr>
+                                                    <td colspan="7" class="alert alert-warning text-center" role="alert">
+                                                        <i class="fas fa-exclamation-triangle me-2"></i>No se pudo obtener el ID del profesor. Por favor, re-inicia sesión.
+                                                    </td>
+                                                </tr>
+                                                <%
+                                                    }
+                                                } catch (SQLException e) {
+                                                    globalDbErrorMessage = "Error de SQL al cargar las clases: " + e.getMessage();
+                                                    e.printStackTrace();
+                                                %>
+                                                <tr>
+                                                    <td colspan="7" class="alert alert-danger text-center" role="alert">
+                                                        <i class="fas fa-exclamation-triangle me-2"></i>Error de SQL al cargar las clases: <%= e.getMessage() %>
+                                                    </td>
+                                                </tr>
+                                                <%
+                                                }
+                                                // The problematic ClassNotFoundException catch block is removed from here
+                                                finally {
+                                                    closeDbResources(localRsClases, localPstmtClases);
+                                                }
+                                                %>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-                                int alumnosInscritos = rsClases.getInt("alumnos_inscritos");
-                                int capacidadMaxima = rsClases.getInt("capacidad_maxima");
-                        %>
-                        <tr>
-                            <td>
-                                <span class="clase-name"><%= rsClases.getString("seccion")%> - <%= rsClases.getString("ciclo")%></span>
-                                <br><small class="text-muted"><%= rsClases.getString("semestre")%> / <%= rsClases.getInt("año_academico")%></small>
-                            </td>
-                            <td>
-                                <%= rsClases.getString("nombre_curso")%>
-                                <br><small class="text-muted">Código: <%= rsClases.getString("codigo_curso")%></small>
-                            </td>
-                            <td>
-                                <%= rsClases.getString("dia_semana")%><br>
-                                <%= rsClases.getTime("hora_inicio")%> - <%= rsClases.getTime("hora_fin")%>
-                            </td>
-                            <td>
-                                <%= rsClases.getString("aula") %> </td>
-                            <td><%= alumnosInscritos%> / <%= capacidadMaxima%></td>
-                            <td><span class="badge <%= badgeClass%>"><%= estadoClase.toUpperCase()%></span></td>
-                            <td>
-                                <form action="ver_estudiantes.jsp" method="get" style="display:inline;">
-                                    <input type="hidden" name="id_clase" value="<%= rsClases.getInt("id_clase") %>">
-                                    <button type="submit" style="background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">
-                                        Ver Estudiantes
-                                    </button>
-                                </form>
-                            </td>
-                        </tr>
-                        <%
-                            } // Cierre de while
-
-                            if (!hayClases) {
-                        %>
-                        <tr>
-                            <td colspan="7" class="no-data"> <%-- Colspan ajustado a 7 --%>
-                                📚 No tienes clases asignadas.
-                            </td>
-                        </tr>
-                        <%
-                            }
-                        %>
-                    </tbody>
-                </table>
-                <%
-                        } else { // Si conn es nulo o está cerrado o idProfesor es -1
-                            classesLoadError = "No se pudo establecer la conexión a la base de datos o el ID de profesor es inválido para cargar clases.";
-                        }
-                    } catch (SQLException e) {
-                        classesLoadError = "Error de SQL al cargar las clases: " + e.getMessage();
-                        e.printStackTrace();
-                    } catch (ClassNotFoundException e) {
-                        classesLoadError = "Error: No se encontró el driver JDBC de MySQL para las clases.";
-                        e.printStackTrace();
-                    } finally {
-                        // Cierre manual y seguro de recursos de este bloque específico
-                        if (pstmtClases != null) { try { pstmtClases.close(); } catch (SQLException ignore) {} }
-                        if (rsClases != null) { try { rsClases.close(); } catch (SQLException ignore) {} }
-                        // La conexión 'conn' (que se abrió al inicio del scriptlet) NO se cierra aquí,
-                        // se cerrará una única vez al final de la página.
-                    }
-
-                    if (classesLoadError != null) {
-                %>
-                    <div class="no-data" style="color: red;"><%= classesLoadError %></div>
-                <%
-                    }
-                %>
-            </div>
-
-            <%-- Botón "Solicitar agregar clase" al final del main-content --%>
-            <div style="text-align: right; margin-top: 30px;">
-                <form action="solicitar_clase.jsp" method="post" style="display:inline-block;">
-                    <button type="submit" style="background-color: var(--primary-color); color: white; padding: 15px 25px; border: none; border-radius: 8px; cursor: pointer; font-size: 1.1rem; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
-                        ➕ Solicitar agregar clase
-                    </button>
-                </form>
-                <p style="font-size: 0.9rem; color: #666; margin-top: 10px;">Esta acción requiere la aprobación del administrador.</p>
+                <div class="text-end mt-4 mb-4">
+                    <a href="solicitar_clase.jsp" class="btn-add-class">
+                        <i class="fas fa-plus-circle me-2"></i>Solicitar Nueva Clase
+                    </a>
+                </div>
             </div>
         </div>
     </div>
 
-    <%
-        // Cierre final de la conexión 'conn' que se abrió al inicio del scriptlet.
-        // Asegura que la conexión se cierre una vez que toda la página haya terminado de usarla.
-        if (conn != null) {
-            try {
-                conn.close();
-            } catch (SQLException ignore) {
-            }
-        }
-    %>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html>
+<%
+    if (conn != null) {
+        try {
+            conn.close();
+        } catch (SQLException ignore) {
+            System.err.println("Error al cerrar la conexión principal: " + ignore.getMessage());
+        }
+    }
+%>
