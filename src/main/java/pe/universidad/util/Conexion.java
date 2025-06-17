@@ -17,7 +17,7 @@ public class Conexion {
             Class.forName("com.mysql.cj.jdbc.Driver");
             String usr = "root";
             String psw = "";
-            String url = "jdbc:mysql://localhost:3306/bd_sw";
+            String url = "jdbc:mysql://localhost:3306/bd-uni";
             cnx = DriverManager.getConnection(url, usr, psw);
             return cnx;
         } catch (SQLException e) {

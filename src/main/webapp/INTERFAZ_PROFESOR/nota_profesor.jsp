@@ -622,52 +622,35 @@
         </nav>
 
         <div class="main-content">
-            <nav class="top-navbar">
+             <nav class="top-navbar">
                 <div class="search-bar">
                     <form class="d-flex">
-                        <input class="form-control me-2" type="search" placeholder="Buscar..." aria-label="Search">
-                        <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-search"></i></button>
                     </form>
                 </div>
                 <div class="d-flex align-items-center">
                     <div class="me-3 dropdown">
-                        <a class="text-dark" href="#" role="button" id="notificationsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-bell fa-lg"></i>
-                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                                3
-                            </span>
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="notificationsDropdown">
-                            <li><a class="dropdown-item" href="#">Nueva nota pendiente</a></li>
-                            <li><a class="dropdown-item" href="#">Recordatorio de clase</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#">Ver todas</a></li>
-                        </ul>
+                        
                     </div>
                     <div class="me-3 dropdown">
                         <a class="text-dark" href="#" role="button" id="messagesDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-envelope fa-lg"></i>
                             <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                                2
                             </span>
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="messagesDropdown">
-                            <li><a class="dropdown-item" href="#">Mensaje de Alumno X</a></li>
-                            <li><a class="dropdown-item" href="#">Mensaje de Coordinación</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#">Ver todos</a></li>
+                            <li><a class="dropdown-item" href="mensajeria_profesor.jsp">Ver todos</a></li>
                         </ul>
                     </div>
 
                     <div class="dropdown user-dropdown">
                         <a class="dropdown-toggle" href="#" role="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                            <img src="https://via.placeholder.com/32" alt="Avatar"> <span class="d-none d-md-inline-block"><%= nombreProfesor != null ? nombreProfesor : "Profesor" %></span>
+                            <img src="https://via.placeholder.com/32" alt="Avatar"> <span class="d-none d-md-inline-block"><%= nombreProfesor%></span>
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Perfil</a></li>
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Configuración</a></li>
+                            <li><a class="dropdown-item" href="perfil_profesor.jsp"><i class="fas fa-user me-2"></i>Perfil</a></li>
+                            <li><a class="dropdown-item" href="configuracion_profesor.jsp"><i class="fas fa-cog me-2"></i>Configuración</a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="<%= request.getContextPath() %>/logout.jsp"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</a></li>
+                            <li><a class="dropdown-item" href="logout.jsp"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</a></li>
                         </ul>
                     </div>
                 </div>
@@ -850,7 +833,7 @@
                     <div class="card-body">
                         <h2 class="card-title text-primary"><i class="fas fa-file-alt me-2"></i>Generar Reporte de Notas</h2>
                         <p class="card-text text-muted">Acceda a los reportes detallados de las notas de sus alumnos para análisis o descarga.</p>
-                        <a href="<%= request.getContextPath() %>/INTERFAZ_PROFESOR/reporte_notas.jsp" class="btn btn-action-custom btn-warning-report mt-3">
+                        <a href="reporte_notas.jsp" class="btn btn-action-custom btn-warning-report mt-3">
                             <i class="fas fa-chart-bar"></i> Ir a Reportes de Notas
                         </a>
                     </div>

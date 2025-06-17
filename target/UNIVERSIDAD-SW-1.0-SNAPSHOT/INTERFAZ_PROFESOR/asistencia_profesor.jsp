@@ -433,24 +433,39 @@
         </ul>
     </nav>
     <div class="main-content">
-        <nav class="top-navbar">
-            <%-- Removed search bar for simplicity in this specific page, can be added back if needed --%>
-            <div class="d-flex align-items-center">
-                <%-- Notifications and Messages (can be re-added from dashboard if needed) --%>
-                <div class="dropdown user-dropdown">
-                    <a class="dropdown-toggle d-flex align-items-center" href="#" role="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        <img src="https://via.placeholder.com/32" alt="Avatar">
-                        <span class="d-none d-md-inline-block"><%= nombreProfesor %></span>
-                    </a>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                        <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Perfil</a></li>
-                        <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Configuración</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="<%= request.getContextPath() %>/logout.jsp"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</a></li>
-                    </ul>
+       <nav class="top-navbar">
+                <div class="search-bar">
+                    <form class="d-flex">
+                    </form>
                 </div>
-            </div>
-        </nav>
+                <div class="d-flex align-items-center">
+                    <div class="me-3 dropdown">
+                        
+                    </div>
+                    <div class="me-3 dropdown">
+                        <a class="text-dark" href="#" role="button" id="messagesDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-envelope fa-lg"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                            </span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="messagesDropdown">
+                            <li><a class="dropdown-item" href="mensajeria_profesor.jsp">Ver todos</a></li>
+                        </ul>
+                    </div>
+
+                    <div class="dropdown user-dropdown">
+                        <a class="dropdown-toggle" href="#" role="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <img src="https://via.placeholder.com/32" alt="Avatar"> <span class="d-none d-md-inline-block"><%= nombreProfesor%></span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li><a class="dropdown-item" href="perfil_profesor.jsp"><i class="fas fa-user me-2"></i>Perfil</a></li>
+                            <li><a class="dropdown-item" href="configuracion_profesor.jsp"><i class="fas fa-cog me-2"></i>Configuración</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="logout.jsp"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </nav>
 
         <div class="container-fluid">
             <div class="welcome-section">
@@ -487,7 +502,7 @@
                             </div>
                         </div>
                     </div>
-                </div>
+                </div> 
             </div>
 
             <% if (idClaseParam == null || idClaseParam.isEmpty()) { %>

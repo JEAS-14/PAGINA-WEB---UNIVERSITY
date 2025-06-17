@@ -529,37 +529,20 @@
             <nav class="top-navbar">
                 <div class="search-bar">
                     <form class="d-flex">
-                        <input class="form-control me-2" type="search" placeholder="Buscar..." aria-label="Search">
-                        <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-search"></i></button>
                     </form>
                 </div>
                 <div class="d-flex align-items-center">
                     <div class="me-3 dropdown">
-                        <a class="text-dark" href="#" role="button" id="notificationsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-bell fa-lg"></i>
-                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                                3
-                            </span>
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="notificationsDropdown">
-                            <li><a class="dropdown-item" href="#">Nueva notificación</a></li>
-                            <li><a class="dropdown-item" href="#">Recordatorio</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#">Ver todas</a></li>
-                        </ul>
+                        
                     </div>
                     <div class="me-3 dropdown">
                         <a class="text-dark" href="#" role="button" id="messagesDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-envelope fa-lg"></i>
                             <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                                2
                             </span>
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="messagesDropdown">
-                            <li><a class="dropdown-item" href="#">Mensaje de Alumno X</a></li>
-                            <li><a class="dropdown-item" href="#">Mensaje de Coordinación</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#">Ver todos</a></li>
+                            <li><a class="dropdown-item" href="mensajeria_profesor.jsp">Ver todos</a></li>
                         </ul>
                     </div>
 
@@ -568,8 +551,8 @@
                             <img src="https://via.placeholder.com/32" alt="Avatar"> <span class="d-none d-md-inline-block"><%= nombreProfesor%></span>
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Perfil</a></li>
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Configuración</a></li>
+                            <li><a class="dropdown-item" href="perfil_profesor.jsp"><i class="fas fa-user me-2"></i>Perfil</a></li>
+                            <li><a class="dropdown-item" href="configuracion_profesor.jsp"><i class="fas fa-cog me-2"></i>Configuración</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="logout.jsp"><i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</a></li>
                         </ul>
