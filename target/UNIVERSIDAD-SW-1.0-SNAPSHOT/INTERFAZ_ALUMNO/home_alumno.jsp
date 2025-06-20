@@ -1,386 +1,360 @@
-<%-- 
-    Document   : home_alumno
-    Created on : 2 may. 2025, 09:32:48
-    Author     : LENOVO
---%>
+<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<%@ page import="java.sql.*, pe.universidad.util.Conexion, java.util.*, java.time.*, java.time.format.*, java.text.DecimalFormat, java.util.Locale" %>
+<%@ page session="true" %>
 
-<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
-<%@ page import="java.sql.*" %>
-<%@ page import="pe.universidad.util.Conexion" %> <%-- Importa tu clase Conexion --%>
+<%!
+    // Método para cerrar recursos de BD
+    private void cerrarRecursos(ResultSet rs, PreparedStatement pstmt) {
+        try { if (rs != null) rs.close(); } catch (SQLException e) {}
+        try { if (pstmt != null) pstmt.close(); } catch (SQLException e) {}
+    }
+%>
+
+<%
+    // --- 1. LÓGICA DE SESIÓN Y DATOS (SIN CAMBIOS) ---
+    String email = (String) session.getAttribute("email");
+    Object idAlumnoObj = session.getAttribute("id_alumno");
+
+    if (email == null || idAlumnoObj == null || !"alumno".equalsIgnoreCase((String)session.getAttribute("rol"))) {
+        response.sendRedirect("login.jsp");
+        return;
+    }
+    int idAlumno = (Integer) idAlumnoObj;
+
+    String nombreCompleto = "Alumno";
+    String carrera = "No especificada";
+    String estadoAcademico = "No disponible";
+    String ultimoAcceso = LocalDateTime.now().format(DateTimeFormatter.ofPattern("d 'de' MMMM, HH:mm", new Locale("es", "ES")));
+
+    int cursosInscritos = 0;
+    int creditosAprobados = 0;
+    double promedioPonderado = 0.0;
+    int pagosPendientes = 0;
+
+    List<Map<String, String>> anuncios = new ArrayList<>();
+    
+    List<String> nombresCursosNotas = new ArrayList<>();
+    List<Double> misNotas = new ArrayList<>();
+    int totalPresente = 0;
+    int totalAusente = 0;
+    int totalTardanza = 0;
+
+    Connection conn = null;
+
+    try {
+        conn = new Conexion().conecta();
+        PreparedStatement pstmtAlumno = conn.prepareStatement("SELECT nombre_completo, nombre_carrera, estado FROM vista_alumnos_completa WHERE id_alumno = ?");
+        pstmtAlumno.setInt(1, idAlumno);
+        ResultSet rsAlumno = pstmtAlumno.executeQuery();
+        if (rsAlumno.next()) {
+            nombreCompleto = rsAlumno.getString("nombre_completo");
+            carrera = rsAlumno.getString("nombre_carrera");
+            estadoAcademico = rsAlumno.getString("estado");
+        }
+        cerrarRecursos(rsAlumno, pstmtAlumno);
+
+        PreparedStatement pstmtCursosCount = conn.prepareStatement("SELECT COUNT(*) FROM inscripciones WHERE id_alumno = ? AND estado = 'inscrito'");
+        pstmtCursosCount.setInt(1, idAlumno);
+        ResultSet rsCursosCount = pstmtCursosCount.executeQuery();
+        if (rsCursosCount.next()) cursosInscritos = rsCursosCount.getInt(1);
+        cerrarRecursos(rsCursosCount, pstmtCursosCount);
+
+        PreparedStatement pstmtNotasStats = conn.prepareStatement(
+            "SELECT SUM(c.creditos) AS creditos_aprobados FROM notas n " +
+            "JOIN inscripciones i ON n.id_inscripcion = i.id_inscripcion " +
+            "JOIN clases cl ON i.id_clase = cl.id_clase " +
+            "JOIN cursos c ON cl.id_curso = c.id_curso " +
+            "WHERE i.id_alumno = ? AND n.nota_final >= 11"
+        );
+        pstmtNotasStats.setInt(1, idAlumno);
+        ResultSet rsNotasStats = pstmtNotasStats.executeQuery();
+        if (rsNotasStats.next()) creditosAprobados = rsNotasStats.getInt("creditos_aprobados");
+        cerrarRecursos(rsNotasStats, pstmtNotasStats);
+
+        PreparedStatement pstmtPromedio = conn.prepareStatement("SELECT AVG(n.nota_final) as promedio FROM notas n JOIN inscripciones i ON n.id_inscripcion = i.id_inscripcion WHERE i.id_alumno = ?");
+        pstmtPromedio.setInt(1, idAlumno);
+        ResultSet rsPromedio = pstmtPromedio.executeQuery();
+        if(rsPromedio.next()) promedioPonderado = rsPromedio.getDouble("promedio");
+        cerrarRecursos(rsPromedio, pstmtPromedio);
+
+        PreparedStatement pstmtPagos = conn.prepareStatement("SELECT COUNT(*) FROM pagos WHERE id_alumno = ? AND estado = 'pendiente'");
+        pstmtPagos.setInt(1, idAlumno);
+        ResultSet rsPagos = pstmtPagos.executeQuery();
+        if (rsPagos.next()) pagosPendientes = rsPagos.getInt(1);
+        cerrarRecursos(rsPagos, pstmtPagos);
+        
+        PreparedStatement pstmtNotasChart = conn.prepareStatement("SELECT c.nombre_curso, n.nota_final FROM notas n JOIN inscripciones i ON n.id_inscripcion = i.id_inscripcion JOIN clases cl ON i.id_clase = cl.id_clase JOIN cursos c ON cl.id_curso = c.id_curso WHERE i.id_alumno = ? AND n.nota_final IS NOT NULL");
+        pstmtNotasChart.setInt(1, idAlumno);
+        ResultSet rsNotasChart = pstmtNotasChart.executeQuery();
+        while(rsNotasChart.next()){
+            nombresCursosNotas.add(rsNotasChart.getString("nombre_curso"));
+            misNotas.add(rsNotasChart.getDouble("nota_final"));
+        }
+        cerrarRecursos(rsNotasChart, pstmtNotasChart);
+
+        PreparedStatement pstmtAsistencia = conn.prepareStatement("SELECT estado, COUNT(*) as count FROM asistencia a JOIN inscripciones i ON a.id_inscripcion = i.id_inscripcion WHERE i.id_alumno = ? GROUP BY estado");
+        pstmtAsistencia.setInt(1, idAlumno);
+        ResultSet rsAsistencia = pstmtAsistencia.executeQuery();
+        while(rsAsistencia.next()){
+            String estado = rsAsistencia.getString("estado");
+            if("presente".equalsIgnoreCase(estado)) totalPresente = rsAsistencia.getInt("count");
+            else if("ausente".equalsIgnoreCase(estado)) totalAusente = rsAsistencia.getInt("count");
+            else if("tardanza".equalsIgnoreCase(estado)) totalTardanza = rsAsistencia.getInt("count");
+        }
+        cerrarRecursos(rsAsistencia, pstmtAsistencia);
+        
+        PreparedStatement pstmtAnuncios = conn.prepareStatement("SELECT titulo, contenido, fecha_publicacion FROM anuncios ORDER BY fecha_publicacion DESC LIMIT 3");
+        ResultSet rsAnuncios = pstmtAnuncios.executeQuery();
+        while(rsAnuncios.next()){
+            Map<String, String> anuncio = new HashMap<>();
+            anuncio.put("titulo", rsAnuncios.getString("titulo"));
+            anuncio.put("contenido", rsAnuncios.getString("contenido"));
+            anuncio.put("fecha", rsAnuncios.getTimestamp("fecha_publicacion").toLocalDateTime().format(DateTimeFormatter.ofPattern("dd MMM Yelp", new Locale("es", "ES"))));
+            anuncios.add(anuncio);
+        }
+        cerrarRecursos(rsAnuncios, pstmtAnuncios);
+        
+    } catch (Exception e) {
+        e.printStackTrace();
+    } finally {
+        if (conn != null) try { conn.close(); } catch (SQLException e) {}
+    }
+    
+    DecimalFormat df = new DecimalFormat("#.00");
+%>
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel del Alumno</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <title>Dashboard Alumno | Sistema Universitario</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-    body {
-        background-color: #f0f2f5;
-        min-height: 100vh;
-        display: flex;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        margin: 0;
-    }
-    
-    .sidebar {
-        background: linear-gradient(to bottom, #2c3e50, #1a252f);
-        color: white;
-        padding-top: 20px;
-        width: 280px;
-        flex-shrink: 0;
-        box-shadow: 3px 0 10px rgba(0, 0, 0, 0.1);
-        transition: width 0.3s ease;
-        z-index: 100;
-    }
-    
-    .sidebar.collapsed {
-        width: 80px;
-    }
-    
-    .sidebar h2 {
-        padding: 15px 20px;
-        margin-bottom: 25px;
-        border-bottom: 2px solid rgba(255, 255, 255, 0.1);
-        font-size: 1.6rem;
-        text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
-        position: relative;
-    }
-    
-    .sidebar h2::after {
-        content: '';
-        position: absolute;
-        left: 20px;
-        bottom: -2px;
-        width: 50px;
-        height: 3px;
-        background-color: #3498db;
-        transition: width 0.3s ease;
-    }
-    
-    .sidebar h2:hover::after {
-        width: 100px;
-    }
-    
-    .sidebar ul {
-        list-style: none;
-        padding-left: 0;
-        margin-bottom: 0;
-    }
-    
-    .sidebar ul li {
-        margin-bottom: 5px;
-    }
-    
-    .sidebar ul li a {
-        display: flex;
-        align-items: center;
-        padding: 14px 20px;
-        text-decoration: none;
-        color: #ecf0f1;
-        transition: all 0.3s ease;
-        border-left: 4px solid transparent;
-        font-weight: 500;
-    }
-    
-    .sidebar ul li a i {
-        margin-right: 12px;
-        font-size: 18px;
-        transition: transform 0.3s ease;
-    }
-    
-    .sidebar ul li a:hover {
-        background-color: rgba(255, 255, 255, 0.1);
-        border-left: 4px solid #3498db;
-        transform: translateX(5px);
-    }
-    
-    .sidebar ul li a:hover i {
-        transform: scale(1.2);
-        color: #3498db;
-    }
-    
-    .sidebar ul li a.active {
-        background-color: rgba(52, 152, 219, 0.2);
-        border-left: 4px solid #3498db;
-        color: #3498db;
-    }
-    
-    .btn-cerrar-sesion {
-        margin-top: 30px;
-        display: block;
-        padding: 14px 20px;
-        color: #ecf0f1;
-        text-decoration: none;
-        transition: all 0.3s ease;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-        font-weight: 500;
-    }
-    
-    .btn-cerrar-sesion:hover {
-        background-color: rgba(231, 76, 60, 0.2);
-        color: #e74c3c;
-    }
-    
-    .btn-cerrar-sesion i {
-        margin-right: 10px;
-        transition: transform 0.3s ease;
-    }
-    
-    .btn-cerrar-sesion:hover i {
-        transform: translateX(-5px);
-    }
-    
-    .content {
-        flex-grow: 1;
-        padding: 30px;
-        transition: margin-left 0.3s ease;
-    }
-    
-    .dynamic-content {
-        background-color: #fff;
-        padding: 25px;
-        border-radius: 12px;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-        margin-bottom: 25px;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-    
-    .dynamic-content:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
-    }
-    
-    .alumno-info {
-        background-color: #fff;
-        padding: 25px;
-        border-radius: 12px;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-        margin-bottom: 25px;
-        border-top: 4px solid #3498db;
-        transition: all 0.3s ease;
-    }
-    
-    .alumno-info:hover {
-        box-shadow: 0 8px 25px rgba(52, 152, 219, 0.2);
-    }
-    
-    /* Header con nombre del usuario */
-    .header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 20px 20px 0;
-        margin-bottom: 20px;
-    }
-    
-    .user-welcome {
-        font-size: 1.8rem;
-        color: #2c3e50;
-        font-weight: 600;
-    }
-    
-    .user-welcome span {
-        color: #3498db;
-        border-bottom: 2px dashed #3498db;
-        padding-bottom: 2px;
-    }
-    
-    /* Notificaciones */
-    .notification-badge {
-        position: relative;
-        display: inline-block;
-        margin-left: 15px;
-    }
-    
-    .notification-badge .badge {
-        position: absolute;
-        top: -8px;
-        right: -8px;
-        padding: 4px 8px;
-        border-radius: 50%;
-        background-color: #e74c3c;
-        color: white;
-        font-size: 12px;
-        font-weight: bold;
-        animation: pulse 1.5s infinite;
-    }
-    
-    @keyframes pulse {
-        0% {
-            transform: scale(1);
-            opacity: 1;
+        :root {
+            --bs-primary-rgb: 13, 110, 253;
+            --sidebar-bg: #222B40;
+            --light-bg: #F0F2F5;
         }
-        50% {
-            transform: scale(1.2);
-            opacity: 0.8;
+        body { background-color: var(--light-bg); font-family: 'Inter', sans-serif; }
+        .sidebar { width: 260px; background-color: var(--sidebar-bg); position: fixed; height: 100%; z-index: 1030;}
+        .sidebar-header { padding: 1.25rem; text-align: center; font-size: 1.5rem; font-weight: bold; color: #fff; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        .sidebar .nav-link { color: rgba(255, 255, 255, 0.7); padding: 0.75rem 1.5rem; }
+        .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background-color: rgba(255, 255, 255, 0.08); }
+        
+        .main-content { 
+            margin-left: 260px; 
+            padding: 2rem; 
+            flex: 1; /* <-- ESTA ES LA LÍNEA CORREGIDA */
         }
-        100% {
-            transform: scale(1);
-            opacity: 1;
-        }
-    }
-    
-    /* Tarjetas animadas */
-    .card-container {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 20px;
-        margin-bottom: 30px;
-    }
-    
-    .card {
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
-        transition: all 0.3s ease;
-        overflow: hidden;
-        position: relative;
-    }
-    
-    .card:hover {
-        transform: translateY(-10px);
-        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
-    }
-    
-    .card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 5px;
-        height: 100%;
-        background: #3498db;
-        transform: scaleY(0);
-        transition: transform 0.3s ease;
-        transform-origin: bottom;
-    }
-    
-    .card:hover::before {
-        transform: scaleY(1);
-    }
-    
-    .card-title {
-        margin-bottom: 15px;
-        color: #2c3e50;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-    }
-    
-    .card-title i {
-        margin-right: 10px;
-        color: #3498db;
-        font-size: 1.2em;
-    }
-    
-    /* Botones con efectos */
-    .btn {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 6px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .btn-primary {
-        background-color: #3498db;
-        color: white;
-    }
-    
-    .btn-primary:hover {
-        background-color: #2980b9;
-        box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
-    }
-    
-    .btn::after {
-        content: '';
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        top: 0;
-        left: -100%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-        transition: 0.5s;
-    }
-    
-    .btn:hover::after {
-        left: 100%;
-    }
-</style>
+
+        .stat-card { border: none; border-left: 5px solid var(--bs-primary); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .stat-card .icon { font-size: 2rem; opacity: 0.3; }
+        .action-card { text-align: center; padding: 1.5rem; border-radius: 0.75rem; background-color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: transform 0.2s, box-shadow 0.2s; }
+        .action-card:hover { transform: translateY(-5px); box-shadow: 0 8px 16px rgba(0,0,0,0.1); }
+        .action-card i { font-size: 2.5rem; margin-bottom: 1rem; color: var(--bs-primary); }
+        .action-card a { text-decoration: none; color: inherit; }
+        .chart-container { height: 350px; }
+    </style>
 </head>
 <body>
-    <div class="sidebar">
-        <h2>Panel del Alumno</h2>
-        <ul class="nav flex-column">
-            <li class="nav-item">
-                <a class="nav-link" href="informacion_alumno.jsp" data-target="#contenido-principal">Información del Alumno</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="ver_cursos_inscritos.jsp" data-target="#contenido-principal">Ver Cursos Inscritos</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="ver_horarios.jsp" data-target="#contenido-principal">Ver Horario</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="ver_notas.jsp" data-target="#contenido-principal">Ver Mis Notas</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="ver_pagos.jsp" data-target="#contenido-principal">Realizar Pago</a>
-            </li>      
-            <a href="#" onclick="confirmarCerrarSesion(); return false;" class="btn-cerrar-sesion">     Cerrar Sesión</a>
+    <div class="d-flex">
+        <nav class="sidebar">
+            <div class="sidebar-header">Portal UGIC</div>
+            <ul class="nav flex-column mt-3">
+                <li class="nav-item"><a class="nav-link active" href="home_alumno.jsp"><i class="fas fa-home fa-fw me-2"></i>Inicio</a></li>
+                <li class="nav-item"><a class="nav-link" href="cursos_alumno.jsp"><i class="fas fa-book fa-fw me-2"></i>Mis Cursos</a></li>
+                <li class="nav-item"><a class="nav-link" href="asistencia_alumno.jsp"><i class="fas fa-clipboard-check fa-fw me-2"></i>Mi Asistencia</a></li>
+                <li class="nav-item"><a class="nav-link" href="notas_alumno.jsp"><i class="fas fa-percent fa-fw me-2"></i>Mis Notas</a></li>
+                <li class="nav-item"><a class="nav-link" href="pagos_alumno.jsp"><i class="fas fa-money-bill-wave fa-fw me-2"></i>Mis Pagos</a></li>
+                <li class="nav-item"><a class="nav-link" href="mensajes_alumno.jsp"><i class="fas fa-envelope fa-fw me-2"></i>Mensajes</a></li>
+                <li class="nav-item"><a class="nav-link" href="perfil_alumno.jsp"><i class="fas fa-user-circle fa-fw me-2"></i>Mi Perfil</a></li>
+                <li class="nav-item"><a class="nav-link" href="configuracion_alumno.jsp"><i class="fas fa-cog fa-fw me-2"></i>Configuración</a></li>
+                <li class="nav-item mt-auto"><a class="nav-link" href="logout.jsp"><i class="fas fa-sign-out-alt fa-fw me-2"></i>Cerrar Sesión</a></li>
+            </ul>
+        </nav>
 
-            <script>
-            function confirmarCerrarSesion() {
-            if (confirm('¿Está seguro que desea cerrar la sesión?')) {
-            window.location.href = '${pageContext.request.contextPath}/Plataforma.jsp';
-            }
-        }
-</script>
-        </ul>
+        <main class="main-content">
+            <div class="container-fluid">
+                <div class="p-4 mb-4 bg-white rounded shadow-sm">
+                    <h1 class="h3">¡Bienvenido de nuevo, <%= nombreCompleto.split(" ")[0] %>!</h1>
+                    <p class="text-muted mb-0">Último acceso: <%= ultimoAcceso %></p>
+                </div>
+                
+                <div class="card mb-4 shadow-sm">
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-2 text-center mb-3 mb-md-0">
+                                <i class="fas fa-user-circle fa-5x text-secondary"></i>
+                            </div>
+                            <div class="col-md-10">
+                                <h4 class="card-title mb-1"><%= nombreCompleto %></h4>
+                                <p class="text-muted mb-2">Estudiante de <strong><%= carrera %></strong></p>
+                                <span class="badge bg-success-subtle text-success-emphasis rounded-pill fs-6">
+                                    <i class="fas fa-check-circle me-1"></i> Estado: <%= estadoAcademico %>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-lg-3 col-md-6 mb-3">
+                        <div class="card stat-card border-primary h-100">
+                            <div class="card-body d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="card-title text-muted">Cursos Inscritos</h6>
+                                    <h2 class="card-text fw-bold"><%= cursosInscritos %></h2>
+                                </div>
+                                <i class="fas fa-book-open icon text-primary"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6 mb-3">
+                        <div class="card stat-card border-success h-100">
+                            <div class="card-body d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="card-title text-muted">Créditos Aprobados</h6>
+                                    <h2 class="card-text fw-bold"><%= creditosAprobados %></h2>
+                                </div>
+                                <i class="fas fa-check-double icon text-success"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6 mb-3">
+                        <div class="card stat-card border-info h-100">
+                            <div class="card-body d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="card-title text-muted">Promedio Ponderado</h6>
+                                    <h2 class="card-text fw-bold"><%= df.format(promedioPonderado) %></h2>
+                                </div>
+                                 <i class="fas fa-star-half-alt icon text-info"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6 mb-3">
+                         <div class="card stat-card border-danger h-100">
+                            <div class="card-body d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="card-title text-muted">Pagos Pendientes</h6>
+                                    <h2 class="card-text fw-bold"><%= pagosPendientes %></h2>
+                                </div>
+                                 <i class="fas fa-file-invoice-dollar icon text-danger"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-lg-7 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">Mis Notas por Curso</h5>
+                                <div class="chart-container">
+                                    <canvas id="notasChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-5 mb-3">
+                         <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">Mi Récord de Asistencia</h5>
+                                 <div class="chart-container">
+                                    <canvas id="asistenciaChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                 <div class="row">
+                    <div class="col-lg-7 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title mb-3">Acceso Rápido</h5>
+                                <div class="row g-3">
+                                    <div class="col-md-6"><div class="action-card"><a href="horario_alumno.jsp"><i class="fas fa-calendar-week"></i><h6>Ver Horario</h6></a></div></div>
+                                    <div class="col-md-6"><div class="action-card"><a href="pagos_alumno.jsp"><i class="fas fa-dollar-sign"></i><h6>Realizar Pagos</h6></a></div></div>
+                                    <div class="col-md-6"><div class="action-card"><a href="notas_alumno.jsp"><i class="fas fa-poll"></i><h6>Mis Calificaciones</h6></a></div></div>
+                                    <div class="col-md-6"><div class="action-card"><a href="solicitud_cursos_estilo.jsp"><i class="fas fa-plus"></i><h6>Inscripción a Cursos</h6></a></div></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-5 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title mb-3">Anuncios Recientes</h5>
+                                <% if (anuncios.isEmpty()) { %>
+                                    <p class="text-muted">No hay anuncios nuevos.</p>
+                                <% } else { %>
+                                    <div class="list-group list-group-flush">
+                                    <% for(Map<String, String> anuncio : anuncios) { %>
+                                        <a href="#" class="list-group-item list-group-item-action">
+                                            <div class="d-flex w-100 justify-content-between">
+                                                <h6 class="mb-1"><%= anuncio.get("titulo") %></h6>
+                                                <small class="text-muted"><%= anuncio.get("fecha") %></small>
+                                            </div>
+                                            <p class="mb-1 text-muted small"><%= anuncio.get("contenido").length() > 80 ? anuncio.get("contenido").substring(0, 80) + "..." : anuncio.get("contenido") %></p>
+                                        </a>
+                                    <% } %>
+                                    </div>
+                                <% } %>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
     </div>
 
-    <div class="content">
-        <div id="contenido-principal" class="dynamic-content">
-            <%-- Contenido inicial o dinámico se cargará aquí --%>
-            <%@ include file="informacion_alumno.jsp" %> <%-- Incluye la información del alumno inicialmente --%>
-        </div>
-    </div>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const navLinks = document.querySelectorAll('.sidebar ul li a');
-            const contenidoPrincipal = document.getElementById('contenido-principal');
-
-            navLinks.forEach(link => {
-                link.addEventListener('click', function(event) {
-                    event.preventDefault(); // Evita la navegación predeterminada
-
-                    const url = this.getAttribute('href');
-                    const targetId = this.getAttribute('data-target');
-
-                    if (targetId) {
-                        fetch(url)
-                            .then(response => response.text())
-                            .then(data => {
-                                document.querySelector(targetId).innerHTML = data;
-                            })
-                            .catch(error => {
-                                console.error('Error al cargar el contenido:', error);
-                                document.querySelector(targetId).innerHTML = '<p class="text-danger">Error al cargar el contenido.</p>';
-                            });
-                    } else {
-                        // Si el enlace no tiene un data-target, realiza la navegación normal (como el cierre de sesión)
-                        window.location.href = url;
-                    }
-                });
-            });
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // --- Gráfico de Notas ---
+    const ctxNotas = document.getElementById('notasChart');
+    if (ctxNotas && <%= misNotas.size() %> > 0) {
+        new Chart(ctxNotas, {
+            type: 'bar',
+            data: {
+                labels: [<% for(int i=0; i<nombresCursosNotas.size(); i++) out.print("'" + nombresCursosNotas.get(i).replace("'", "\\'") + (i < nombresCursosNotas.size()-1 ? "'," : "'")); %>],
+                datasets: [{
+                    label: 'Mi Nota Final',
+                    data: [<% for(int i=0; i<misNotas.size(); i++) out.print(misNotas.get(i) + (i < misNotas.size()-1 ? "," : "")); %>],
+                    backgroundColor: 'rgba(13, 110, 253, 0.6)',
+                    borderColor: 'rgba(13, 110, 253, 1)',
+                    borderWidth: 1,
+                    borderRadius: 5
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 20 } }, plugins: { legend: { display: false } } }
         });
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+    }
+
+    // --- Gráfico de Asistencia ---
+    const ctxAsistencia = document.getElementById('asistenciaChart');
+    if (ctxAsistencia && (<%= totalPresente + totalAusente + totalTardanza %>) > 0) {
+        new Chart(ctxAsistencia, {
+            type: 'doughnut',
+            data: {
+                labels: ['Presente', 'Ausente', 'Tardanza'],
+                datasets: [{
+                    data: [<%= totalPresente %>, <%= totalAusente %>, <%= totalTardanza %>],
+                    backgroundColor: ['rgba(25, 135, 84, 0.8)', 'rgba(220, 53, 69, 0.8)', 'rgba(255, 193, 7, 0.8)'],
+                    borderColor: ['#fff'],
+                    borderWidth: 3
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        });
+    }
+});
+</script>
 </body>
 </html>
