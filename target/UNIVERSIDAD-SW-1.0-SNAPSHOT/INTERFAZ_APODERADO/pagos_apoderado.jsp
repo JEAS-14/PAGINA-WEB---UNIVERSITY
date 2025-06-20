@@ -28,14 +28,6 @@
     // ====================================================================
     // 🧪 FORZAR SESIÓN TEMPORALMENTE PARA APODERADO (SOLO PARA TEST)
     // REMOVER ESTE BLOQUE EN PRODUCCIÓN O CUANDO EL LOGIN REAL FUNCIONE
-    if (session.getAttribute("id_apoderado") == null) {
-        session.setAttribute("email", "roberto.sanchez@gmail.com"); // Email de un apoderado que exista en tu BD (ID 1 en bd_sw.sql)
-        session.setAttribute("rol", "apoderado");
-        session.setAttribute("id_apoderado", 1);    // ID del apoderado en tu BD (ej: Roberto Carlos Sánchez Díaz)
-        System.out.println("DEBUG (pagos_apoderado): Sesión forzada para prueba.");
-    }
-    // ====================================================================
-
     // --- Obtener información de la sesión ---
     String emailSesion = (String) session.getAttribute("email");
     String rolUsuario = (String) session.getAttribute("rol");
@@ -127,10 +119,10 @@
             if (globalErrorMessage == null) { // Only proceed if apoderado data was successfully retrieved
                 try {
                     String sqlHijo = "SELECT a.id_alumno, a.dni, a.nombre, a.apellido_paterno, a.apellido_materno, c.nombre_carrera, a.estado "
-                                           + "FROM alumnos a "
-                                           + "JOIN alumno_apoderado aa ON a.id_alumno = aa.id_alumno "
-                                           + "JOIN carreras c ON a.id_carrera = c.id_carrera "
-                                           + "WHERE aa.id_apoderado = ? LIMIT 1";    
+                                            + "FROM alumnos a "
+                                            + "JOIN alumno_apoderado aa ON a.id_alumno = aa.id_alumno "
+                                            + "JOIN carreras c ON a.id_carrera = c.id_carrera "
+                                            + "WHERE aa.id_apoderado = ? LIMIT 1";    
                     currentPstmt = conn.prepareStatement(sqlHijo);
                     currentPstmt.setInt(1, idApoderado);
                     currentRs = currentPstmt.executeQuery();
@@ -158,9 +150,9 @@
             if (idHijo != -1 && globalErrorMessage == null) {
                 try {
                     String sqlPagos = "SELECT id_pago, fecha_pago, fecha_vencimiento, concepto, monto, metodo_pago, referencia, estado "
-                                    + "FROM pagos "
-                                    + "WHERE id_alumno = ? "
-                                    + "ORDER BY fecha_vencimiento DESC, fecha_pago DESC";
+                                           + "FROM pagos "
+                                           + "WHERE id_alumno = ? "
+                                           + "ORDER BY fecha_vencimiento DESC, fecha_pago DESC";
                     
                     currentPstmt = conn.prepareStatement(sqlPagos);
                     currentPstmt.setInt(1, idHijo);
@@ -639,6 +631,17 @@
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                 <% } %>
+                
+                <%-- Add this section to display messages from redirects --%>
+                <% String messageFromUrl = request.getParameter("message");
+                   String typeFromUrl = request.getParameter("type");
+                   if (messageFromUrl != null && !messageFromUrl.isEmpty()) { %>
+                    <div class="alert alert-<%= typeFromUrl %> alert-dismissible fade show mt-3" role="alert">
+                        <i class="fas <%= "success".equals(typeFromUrl) ? "fa-check-circle" : ("danger".equals(typeFromUrl) ? "fa-exclamation-triangle" : "fa-info-circle") %> me-2"></i> <%= messageFromUrl %>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                <% } %>
+
 
                 <div class="card content-section mb-4">
                     <div class="card-header">
@@ -753,22 +756,21 @@
                                         <td><%= pago.get("referencia") %></td>
                                         <td>
                                             <%    String estadoPago = pago.get("estado");
-                                                String badgeClass = "";
-                                                if ("PAGADO".equalsIgnoreCase(estadoPago)) { badgeClass = "bg-success"; }
-                                                else if ("PENDIENTE".equalsIgnoreCase(estadoPago)) { badgeClass = "bg-warning text-dark"; }
-                                                else if ("VENCIDO".equalsIgnoreCase(estadoPago)) { badgeClass = "bg-danger"; }
+                                                    String badgeClass = "";
+                                                    if ("PAGADO".equalsIgnoreCase(estadoPago)) { badgeClass = "bg-success"; }
+                                                    else if ("PENDIENTE".equalsIgnoreCase(estadoPago)) { badgeClass = "bg-warning text-dark"; }
+                                                    else if ("VENCIDO".equalsIgnoreCase(estadoPago)) { badgeClass = "bg-danger"; }
                                             %>
                                             <span class="badge badge-pago <%= badgeClass %>"><%= estadoPago %></span>
                                         </td>
                                         <td>
                                             <% if ("PENDIENTE".equalsIgnoreCase(pago.get("estado")) || "VENCIDO".equalsIgnoreCase(pago.get("estado"))) { %>
-                                                <button onclick="alert('Se iniciará el proceso de pago para el concepto: <%= pago.get("concepto") %>. ID de Pago: <%= pago.get("id_pago") %>')"
-                                                            class="btn btn-primary btn-sm">
-                                                            <i class="fas fa-money-check-alt me-1"></i> Pagar
-                                                </button>
+                                                <a href="<%= request.getContextPath() %>/INTERFAZ_APODERADO/realizar_pago.jsp?idPago=<%= pago.get("id_pago") %>" class="btn btn-primary btn-sm">
+                                                    <i class="fas fa-money-check-alt me-1"></i> Pagar
+                                                </a>
                                             <% } else { %>
                                                 <button class="btn btn-primary btn-sm" disabled>
-                                                            <i class="fas fa-check-circle me-1"></i> Pagado
+                                                    <i class="fas fa-check-circle me-1"></i> Pagado
                                                 </button>
                                             <% } %>
                                         </td>
@@ -807,7 +809,7 @@
                             backgroundColor: [
                                 '#2E8B57',    // Sea Green for Pagado (a distinct green)
                                 '#F0AD4E',    // Goldenrod for Pendiente (a distinct yellow-orange)
-                                '#D9534F'      // Tomato for Vencido (a distinct red)
+                                '#D9534F'     // Tomato for Vencido (a distinct red)
                             ],
                             borderColor: 'var(--admin-card-bg)', // Color de borde de las secciones del gráfico
                             borderWidth: 2

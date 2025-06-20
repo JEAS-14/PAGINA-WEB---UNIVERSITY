@@ -21,13 +21,12 @@
         } catch (SQLException e) { /* Ignorar al cerrar */ }
     }
 
-    // Helper method for manual JSON string escaping
+    // Helper method for manual JSON string escaping - CORREGIDO
     private String escapeJson(String text) {
         if (text == null) {
-            return "null";
+            return "null"; // JSON 'null' literal, not a string
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("\""); // Start with a double quote
         for (int i = 0; i < text.length(); i++) {
             char ch = text.charAt(i);
             switch (ch) {
@@ -52,8 +51,8 @@
                 case '\t':
                     sb.append("\\t"); // Escape tab
                     break;
-                // Handle control characters (00-1F) and potentially other non-ASCII characters if necessary
                 default:
+                    // Handle control characters (00-1F) and potentially other non-ASCII characters if necessary
                     if (ch < 32 || ch > 126) { // Characters outside printable ASCII range
                         String hex = Integer.toHexString(ch);
                         sb.append("\\u");
@@ -66,7 +65,6 @@
                     }
             }
         }
-        sb.append("\""); // End with a double quote
         return sb.toString();
     }
 %>
@@ -75,29 +73,35 @@
     // ====================================================================
     // 🧪 FORZAR SESIÓN TEMPORALMENTE PARA APODERADO (SOLO PARA TEST)
     // REMOVER ESTE BLOQUE EN PRODUCCIÓN O CUANDO EL LOGIN REAL FUNCIONE
+    // Si la sesión ya tiene un id_apoderado, no la sobrescribas para no interferir con logins reales.
+    // Solo forzar si NO hay id_apoderado en sesión.
     if (session.getAttribute("id_apoderado") == null) {
         session.setAttribute("email", "roberto.sanchez@gmail.com"); // Email de un apoderado que exista en tu BD (ID 1 en bd-uni.sql)
         session.setAttribute("rol", "apoderado");
         session.setAttribute("id_apoderado", 1);    // ID del apoderado en tu BD (ej: Roberto Carlos Sánchez Díaz)
-        System.out.println("DEBUG (enviar_mensaje_apoderado): Sesión forzada para prueba.");
+        System.out.println("DEBUG (enviar_mensaje_apoderado_profesor): Sesión forzada para prueba.");
     }
     // ====================================================================
+
 
     // --- VALIDACIÓN DE SESIÓN ---
     String emailSesion = (String) session.getAttribute("email");
     String rolUsuario = (String) session.getAttribute("rol");
     Object idApoderadoObj = session.getAttribute("id_apoderado");
 
-    if (emailSesion == null || !"apoderado".equalsIgnoreCase(rolUsuario) || idApoderadoObj == null) {
-        response.sendRedirect(request.getContextPath() + "/login.jsp"); // Redirect to base login
+    int idApoderado = -1; // Valor por defecto inválido
+    try {
+        if (idApoderadoObj != null) {
+            idApoderado = Integer.parseInt(String.valueOf(idApoderadoObj));
+        }
+    } catch (NumberFormatException e) {
+        System.err.println("ERROR: ID de apoderado en sesión no es un número válido. Redirigiendo a login. " + e.getMessage());
+        response.sendRedirect(request.getContextPath() + "/login.jsp");
         return;
     }
 
-    int idApoderado = -1;
-    try {
-        idApoderado = Integer.parseInt(String.valueOf(idApoderadoObj));
-    } catch (NumberFormatException e) {
-        response.sendRedirect(request.getContextPath() + "/login.jsp");
+    if (emailSesion == null || !"apoderado".equalsIgnoreCase(rolUsuario) || idApoderado == -1) {
+        response.sendRedirect(request.getContextPath() + "/login.jsp"); // Redirect to base login
         return;
     }
 
@@ -118,7 +122,7 @@
                 session.setAttribute("nombre_apoderado", nombreApoderado);
             }
         } catch (SQLException | ClassNotFoundException ex) {
-            System.err.println("Error al obtener nombre del apoderado en enviar_mensaje_apoderado.jsp: " + ex.getMessage());
+            System.err.println("ERROR: Al obtener nombre del apoderado en enviar_mensaje_apoderado_profesor.jsp: " + ex.getMessage());
         } finally {
             closeDbResources(rsTemp, pstmtTemp);
             if (connTemp != null) { try { connTemp.close(); } catch (SQLException ignore) {} }
@@ -126,6 +130,8 @@
     }
 
     // --- Obtener ID del hijo asociado al apoderado ---
+    // Un apoderado puede tener varios hijos, pero para la funcionalidad de 'cursos de mi hijo',
+    // a menudo se asume un hijo principal o se elige el primero. Aquí tomamos el primero.
     int idHijoAsociado = -1;
     Connection connHijo = null;
     PreparedStatement pstmtHijo = null;
@@ -138,9 +144,11 @@
         rsHijo = pstmtHijo.executeQuery();
         if (rsHijo.next()) {
             idHijoAsociado = rsHijo.getInt("id_alumno");
+        } else {
+            System.out.println("DEBUG: No se encontró ningún hijo asociado al apoderado ID: " + idApoderado);
         }
     } catch (SQLException | ClassNotFoundException ex) {
-        System.err.println("Error al obtener ID del hijo en enviar_mensaje_apoderado.jsp: " + ex.getMessage());
+        System.err.println("ERROR: Al obtener ID del hijo en enviar_mensaje_apoderado_profesor.jsp: " + ex.getMessage());
     } finally {
         closeDbResources(rsHijo, pstmtHijo);
         if (connHijo != null) { try { connHijo.close(); } catch (SQLException ignore) {} }
@@ -149,10 +157,9 @@
 
     // --- Detectar si es una solicitud AJAX para buscar profesores o seleccionar todos ---
     String searchTerm = request.getParameter("term");
-    String requestType = request.getParameter("requestType"); // "getAllTeachersOfMyChildCourses"
-    
+    String requestType = request.getParameter("requestType"); // "searchTeachers" or "getAllTeachersOfMyChildCourses"
+
     // This block executes ONLY if it's an AJAX call.
-    // The key change: remove the direct navigation condition from here.
     if (searchTerm != null || "getAllTeachersOfMyChildCourses".equals(requestType)) {
         response.setContentType("application/json;charset=UTF-8");
         StringBuilder jsonResponse = new StringBuilder(); // Manual JSON building
@@ -167,19 +174,20 @@
             }
 
             if (idHijoAsociado == -1) {
-                jsonResponse.append("[]"); // No child, no teachers
+                jsonResponse.append("[]"); // No child, no teachers to search for relevant to the child.
                 out.print(jsonResponse.toString());
                 return;
             }
 
             String sql;
             if ("getAllTeachersOfMyChildCourses".equals(requestType)) {
-                sql = "SELECT DISTINCT p.id_profesor, p.dni, p.nombre, p.apellido_paterno, p.apellido_materno, p.email "
-                    + "FROM profesores p "
-                    + "INNER JOIN clases cl ON p.id_profesor = cl.id_profesor "
-                    + "INNER JOIN inscripciones i ON cl.id_clase = i.id_clase "
-                    + "WHERE i.id_alumno = ? AND cl.estado = 'activo' AND i.estado = 'inscrito' "
-                    + "ORDER BY p.apellido_paterno, p.nombre";
+                // Query to get all distinct teachers for the child's active and enrolled courses
+                sql = "SELECT DISTINCT p.id_profesor, p.dni, p.nombre, p.apellido_paterno, p.apellido_materno, p.email " +
+                      "FROM profesores p " +
+                      "INNER JOIN clases cl ON p.id_profesor = cl.id_profesor " +
+                      "INNER JOIN inscripciones i ON cl.id_clase = i.id_clase " +
+                      "WHERE i.id_alumno = ? AND cl.estado = 'activo' AND i.estado = 'inscrito' AND p.estado = 'activo' " + // Ensure active classes and enrolled student
+                      "ORDER BY p.apellido_paterno, p.nombre";
                 pstmtAjax = connAjax.prepareStatement(sql);
                 pstmtAjax.setInt(1, idHijoAsociado);
 
@@ -190,15 +198,15 @@
                     return; // Terminate execution here for empty/short search
                 }
 
-                sql = "SELECT DISTINCT p.id_profesor, p.dni, p.nombre, p.apellido_paterno, p.apellido_materno, p.email "
-                    + "FROM profesores p "
-                    + "INNER JOIN clases cl ON p.id_profesor = cl.id_profesor "
-                    + "INNER JOIN inscripciones i ON cl.id_clase = i.id_clase "
-                    + "WHERE i.id_alumno = ? AND cl.estado = 'activo' AND i.estado = 'inscrito' AND ( " // Only search within this child's active courses teachers
-                    + "    LOWER(CONCAT(p.nombre, ' ', p.apellido_paterno, ' ', IFNULL(p.apellido_materno, ''))) LIKE LOWER(?) OR "
-                    + "    p.dni LIKE ? OR "
-                    + "    LOWER(p.email) LIKE LOWER(?) "
-                    + ") LIMIT 10"; // Limit results for performance
+                sql = "SELECT DISTINCT p.id_profesor, p.dni, p.nombre, p.apellido_paterno, p.apellido_materno, p.email " +
+                      "FROM profesores p " +
+                      "INNER JOIN clases cl ON p.id_profesor = cl.id_profesor " +
+                      "INNER JOIN inscripciones i ON cl.id_clase = i.id_clase " +
+                      "WHERE i.id_alumno = ? AND cl.estado = 'activo' AND i.estado = 'inscrito' AND p.estado = 'activo' AND ( " + // Only search within this child's active courses teachers
+                      "    LOWER(CONCAT(p.nombre, ' ', p.apellido_paterno, ' ', IFNULL(p.apellido_materno, ''))) LIKE LOWER(?) OR " +
+                      "    p.dni LIKE ? OR " +
+                      "    LOWER(p.email) LIKE LOWER(?) " +
+                      ") LIMIT 10"; // Limit results for performance
 
                 pstmtAjax = connAjax.prepareStatement(sql);
                 String searchPattern = "%" + searchTerm.trim() + "%";
@@ -231,9 +239,9 @@
                 }
 
                 jsonResponse.append("\"id_profesor\":").append(idProfesorResult).append(",");
-                jsonResponse.append("\"dni\":").append(escapeJson(dni)).append(",");
-                jsonResponse.append("\"nombre_completo\":").append(escapeJson(nombreCompleto)).append(",");
-                jsonResponse.append("\"email\":").append(escapeJson(email));
+                jsonResponse.append("\"dni\":\"").append(escapeJson(dni)).append("\","); // Corrected: add quotes here
+                jsonResponse.append("\"nombre_completo\":\"").append(escapeJson(nombreCompleto)).append("\","); // Corrected: add quotes here
+                jsonResponse.append("\"email\":\"").append(escapeJson(email)).append("\""); // Corrected: add quotes here
 
                 jsonResponse.append("}");
                 first = false;
@@ -241,11 +249,11 @@
             jsonResponse.append("]");
 
         } catch (SQLException e) {
-            System.err.println("Error SQL al obtener profesores (AJAX): " + e.getMessage());
+            System.err.println("ERROR SQL al obtener profesores (AJAX): " + e.getMessage());
             jsonResponse.setLength(0); // Clear any partial JSON
             jsonResponse.append("[]"); // Return empty array on error
         } catch (ClassNotFoundException e) {
-            System.err.println("Error ClassNotFound al obtener profesores (AJAX): " + e.getMessage());
+            System.err.println("ERROR ClassNotFound al obtener profesores (AJAX): " + e.getMessage());
             jsonResponse.setLength(0); // Clear any partial JSON
             jsonResponse.append("[]"); // Return empty array on error
         } finally {
@@ -258,9 +266,15 @@
     }
 
     // --- If not an AJAX request, proceed with HTML form rendering (POST or initial GET) ---
-    String mensajeExito = request.getParameter("message"); // Use 'message' parameter as per previous file
-    String mensajeError = request.getParameter("error");
+    // Modified to use a single 'message' parameter and a 'type' parameter for alerts
+    String mensajeDisplay = request.getParameter("message");
     String messageType = request.getParameter("type"); // "success" or "danger"
+
+    // Parameters for pre-selected teacher if coming from 'mensajes_apoderado.jsp' (GET request)
+    String preselectedProfesorId = request.getParameter("id_profesor");
+    String preselectedProfesorNombre = request.getParameter("nombre_profesor");
+    String preselectedProfesorEmail = request.getParameter("email_profesor");
+
 
     // --- Logic for sending the message (when form is submitted with POST) ---
     if ("POST".equalsIgnoreCase(request.getMethod())) {
@@ -268,7 +282,14 @@
         String contenido = request.getParameter("contenido");
         String destinatariosIds = request.getParameter("destinatarios_ids");
 
-        String[] idsArray = destinatariosIds.split(",");
+        // --- Debugging output for POST request (TEMPORAL) ---
+        System.out.println("DEBUG (POST Request Received):");
+        System.out.println("  Asunto: " + asunto);
+        System.out.println("  Contenido: " + contenido);
+        System.out.println("  Destinatarios IDs (raw from hidden input): '" + destinatariosIds + "'");
+
+
+        String[] idsArray = destinatariosIds != null && !destinatariosIds.trim().isEmpty() ? destinatariosIds.split(",") : new String[0];
         List<Integer> profesoresAEnviar = new ArrayList<>();
 
         for (String idStr : idsArray) {
@@ -277,14 +298,25 @@
                     profesoresAEnviar.add(Integer.parseInt(idStr.trim()));
                 }
             } catch (NumberFormatException nfe) {
-                System.err.println("Advertencia: ID de profesor inválido encontrado y omitido: " + idStr);
+                System.err.println("Advertencia: ID de profesor inválido encontrado y omitido: '" + idStr + "'");
             }
         }
+        System.out.println("DEBUG (POST): IDs de profesores a enviar (procesados): " + profesoresAEnviar);
+
 
         String redirectURL = request.getContextPath() + "/INTERFAZ_APODERADO/mensajes_apoderado.jsp"; // Redirect back to main apoderado messages overview
 
+        // Server-side validation
         if (profesoresAEnviar.isEmpty()) {
-            response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Debes seleccionar al menos un profesor destinatario válido.", StandardCharsets.UTF_8.toString()) + "&type=" + URLEncoder.encode("danger", StandardCharsets.UTF_8.toString()));
+            response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Debes seleccionar al menos un profesor destinatario válido.", StandardCharsets.UTF_8.toString()) + "&type=danger");
+            return;
+        }
+        if (asunto == null || asunto.trim().isEmpty()) {
+            response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("El asunto del mensaje no puede estar vacío.", StandardCharsets.UTF_8.toString()) + "&type=danger");
+            return;
+        }
+        if (contenido == null || contenido.trim().isEmpty()) {
+            response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("El contenido del mensaje no puede estar vacío.", StandardCharsets.UTF_8.toString()) + "&type=danger");
             return;
         }
 
@@ -300,33 +332,37 @@
             connPost.setAutoCommit(false); // Start transaction
 
             // INSERT message from apoderado to professor
-            String sqlInsertMensaje = "INSERT INTO mensajes (id_remitente, tipo_remitente, id_destinatario, tipo_destinatario, asunto, contenido, fecha_envio) VALUES (?, 'apoderado', ?, 'profesor', ?, ?, NOW())";
+            String sqlInsertMensaje = "INSERT INTO mensajes (id_remitente, tipo_remitente, id_destinatario, tipo_destinatario, asunto, contenido, fecha_envio, leido) VALUES (?, 'apoderado', ?, 'profesor', ?, ?, NOW(), 0)";
             pstmtMensaje = connPost.prepareStatement(sqlInsertMensaje);
 
+            int messagesQueued = 0;
             for (Integer idProfesorDest : profesoresAEnviar) {
                 pstmtMensaje.setInt(1, idApoderado); // Remitente es el apoderado
                 pstmtMensaje.setInt(2, idProfesorDest); // Destinatario es el profesor
                 pstmtMensaje.setString(3, asunto);
                 pstmtMensaje.setString(4, contenido);
                 pstmtMensaje.addBatch(); // Add to batch for efficient inserts
+                messagesQueued++;
             }
 
+            System.out.println("DEBUG (POST): Intentando insertar " + messagesQueued + " mensajes en la base de datos.");
             int[] results = pstmtMensaje.executeBatch(); // Execute all inserts
+            System.out.println("DEBUG (POST): Resultados de executeBatch(): " + Arrays.toString(results));
             connPost.commit(); // Commit transaction
 
             int mensajesEnviadosCount = 0;
             for (int res : results) {
-                if (res > 0) { // Check if insert was successful
+                if (res > 0) { // Check if insert was successful (Statement.SUCCESS_NO_INFO or row count > 0)
                     mensajesEnviadosCount++;
                 }
             }
 
             if (mensajesEnviadosCount == profesoresAEnviar.size()) {
-                response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Mensajes enviados correctamente a " + mensajesEnviadosCount + " profesor(es).", StandardCharsets.UTF_8.toString()) + "&type=" + URLEncoder.encode("success", StandardCharsets.UTF_8.toString()));
+                response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Mensajes enviados correctamente a " + mensajesEnviadosCount + " profesor(es).", StandardCharsets.UTF_8.toString()) + "&type=success");
             } else if (mensajesEnviadosCount > 0) {
-                response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Se enviaron algunos mensajes, pero no a todos los profesores (" + mensajesEnviadosCount + "/" + profesoresAEnviar.size() + ").", StandardCharsets.UTF_8.toString()) + "&type=" + URLEncoder.encode("danger", StandardCharsets.UTF_8.toString()));
+                response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Se enviaron algunos mensajes, pero no a todos los profesores (" + mensajesEnviadosCount + "/" + profesoresAEnviar.size() + ").", StandardCharsets.UTF_8.toString()) + "&type=danger");
             } else {
-                response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("No se pudo enviar mensajes a ningún profesor.", StandardCharsets.UTF_8.toString()) + "&type=" + URLEncoder.encode("danger", StandardCharsets.UTF_8.toString()));
+                response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("No se pudo enviar mensajes a ningún profesor. Verifique el log del servidor para más detalles.", StandardCharsets.UTF_8.toString()) + "&type=danger");
             }
             return;
 
@@ -334,18 +370,19 @@
             if (connPost != null) {
                 try {
                     connPost.rollback(); // Rollback on SQL error
+                    System.err.println("DEBUG (POST): Transacción rollback debido a error: " + e.getMessage());
                 } catch (SQLException rollbackEx) {
-                    System.err.println("Error al hacer rollback: " + rollbackEx.getMessage());
+                    System.err.println("ERROR (POST): Error al hacer rollback: " + rollbackEx.getMessage());
                 }
             }
-            System.err.println("Error de base de datos al enviar mensaje (POST): " + e.getMessage());
+            System.err.println("ERROR (POST): Error de base de datos al enviar mensaje: " + e.getMessage());
             e.printStackTrace();
-            response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Error de base de datos al enviar mensaje: " + e.getMessage(), StandardCharsets.UTF_8.toString()) + "&type=" + URLEncoder.encode("danger", StandardCharsets.UTF_8.toString()));
+            response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Error de base de datos al enviar mensaje: " + e.getMessage(), StandardCharsets.UTF_8.toString()) + "&type=danger");
             return;
         } catch (ClassNotFoundException e) {
-            System.err.println("Error: No se encontró el driver JDBC de MySQL (POST): " + e.getMessage());
+            System.err.println("ERROR (POST): No se encontró el driver JDBC de MySQL: " + e.getMessage());
             e.printStackTrace();
-            response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Error: No se encontró el driver JDBC de MySQL.", StandardCharsets.UTF_8.toString()) + "&type=" + URLEncoder.encode("danger", StandardCharsets.UTF_8.toString()));
+            response.sendRedirect(redirectURL + "?message=" + URLEncoder.encode("Error: No se encontró el driver JDBC de MySQL.", StandardCharsets.UTF_8.toString()) + "&type=danger");
             return;
         } finally {
             closeDbResources(null, pstmtMensaje);
@@ -354,11 +391,6 @@
             }
         }
     }
-
-    // Parameters for pre-selected teacher if coming from 'mensajes_apoderado.jsp' (GET request)
-    String preselectedProfesorId = request.getParameter("id_profesor");
-    String preselectedProfesorNombre = request.getParameter("nombre_profesor");
-    String preselectedProfesorEmail = request.getParameter("email_profesor");
 %>
 
 <!DOCTYPE html>
@@ -368,7 +400,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enviar Mensajes a Profesor | Sistema Universitario</title>
     <link rel="icon" type="image/x-icon" href="<%= request.getContextPath() %>/img/favicon.ico">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" xintegrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -766,15 +798,15 @@
                     <p class="lead">Envía comunicaciones importantes a los profesores de tu hijo/a.</p>
                 </div>
 
-                <% if (mensajeExito != null && !mensajeExito.isEmpty()) { %>
+                <% if (mensajeDisplay != null && "success".equals(messageType)) { %>
                     <div class="alert alert-success alert-dismissible fade show" role="alert">
-                        <i class="fas fa-check-circle me-2"></i><%= mensajeExito %>
+                        <i class="fas fa-check-circle me-2"></i><%= mensajeDisplay %>
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                 <% } %>
-                <% if (mensajeError != null && !mensajeError.isEmpty()) { %>
+                <% if (mensajeDisplay != null && "danger".equals(messageType)) { %>
                     <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                        <i class="fas fa-exclamation-triangle me-2"></i><%= mensajeError %>
+                        <i class="fas fa-exclamation-triangle me-2"></i><%= mensajeDisplay %>
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                 <% } %>
@@ -785,7 +817,7 @@
                         <h4>Información para el Envío</h4>
                         <p class="mb-0">
                             <% if (preselectedProfesorId != null && !preselectedProfesorId.isEmpty()) { %>
-                                Estás enviando un mensaje al profesor: **<%= preselectedProfesorNombre %> (<%= preselectedProfesorEmail %>)**.
+                                Estás enviando un mensaje al profesor: **<%= preselectedProfesorNombre != null ? URLEncoder.encode(preselectedProfesorNombre, StandardCharsets.UTF_8.toString()) : "N/A" %> (<%= preselectedProfesorEmail != null ? URLEncoder.encode(preselectedProfesorEmail, StandardCharsets.UTF_8.toString()) : "N/A" %>)**.
                                 Puedes añadir otros profesores si lo necesitas, o usar el botón "Seleccionar Profesores de Cursos de mi Hijo" para incluir a todos los docentes de los cursos activos de tu hijo/a.
                             <% } else { %>
                                 No has seleccionado un profesor específico. Puedes buscar profesores individualmente o usar "Seleccionar Profesores de Cursos de mi Hijo" para incluir a todos los docentes.
@@ -797,9 +829,7 @@
                 <div class="content-section">
                     <h2 class="section-title"><i class="fas fa-edit me-2"></i>Componer Nuevo Mensaje</h2>
 
-                    <form id="mensajeForm" action="<%= request.getContextPath() %>/INTERFAZ_APODERADO/enviar_mensaje_apoderado.jsp" method="post">
-                        <%-- Removed hidden fields related to current class, as apoderado doesn't "own" a class --%>
-
+                    <form id="mensajeForm" action="<%= request.getContextPath() %>/INTERFAZ_APODERADO/enviar_mensaje_apoderado_profesor.jsp" method="post">
                         <div class="mb-3">
                             <label for="teacherSearchInput" class="form-label">Buscar Profesor (Nombre, DNI o Correo):</label>
                             <div class="input-group search-input-container">
@@ -848,24 +878,26 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" xintegrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const teacherSearchInput = document.getElementById('teacherSearchInput'); // Changed ID
-            const teacherSearchResults = document.getElementById('teacherSearchResults'); // Changed ID
+            const teacherSearchInput = document.getElementById('teacherSearchInput');
+            const teacherSearchResults = document.getElementById('teacherSearchResults');
             const selectedRecipientsList = document.getElementById('selectedRecipientsList');
             const destinatariosIdsHidden = document.getElementById('destinatariosIds');
             const recipientCountSpan = document.getElementById('recipientCount');
-            const selectAllTeachersOfMyChildCoursesBtn = document.getElementById('selectAllTeachersOfMyChildCoursesBtn'); // Changed ID
+            const selectAllTeachersOfMyChildCoursesBtn = document.getElementById('selectAllTeachersOfMyChildCoursesBtn');
             const clearRecipientsBtn = document.getElementById('clearRecipientsBtn');
             const mensajeForm = document.getElementById('mensajeForm');
+            const asuntoInput = document.getElementById('asunto'); // Reference to asunto input
+            const contenidoInput = document.getElementById('contenido'); // Reference to contenido input
 
             // Parameters for pre-selected teacher (from query string)
-            const preselectedProfesorId = '<%= preselectedProfesorId != null ? preselectedProfesorId : "" %>';
-            const preselectedProfesorNombre = '<%= preselectedProfesorNombre != null ? preselectedProfesorNombre : "" %>';
-            const preselectedProfesorEmail = '<%= preselectedProfesorEmail != null ? preselectedProfesorEmail : "" %>';
+            const preselectedProfesorId = '<%= request.getParameter("id_profesor") != null ? request.getParameter("id_profesor") : "" %>';
+            const preselectedProfesorNombre = '<%= request.getParameter("nombre_profesor") != null ? request.getParameter("nombre_profesor") : "" %>';
+            const preselectedProfesorEmail = '<%= request.getParameter("email_profesor") != null ? request.getParameter("email_profesor") : "" %>';
 
-            let selectedProfesores = new Map(); // Map to store {id_profesor: {nombre, dni, email}}
+            let selectedProfesores = new Map(); // Map to store {id_profesor: {nombre_completo, dni, email}}
 
             function updateRecipientCount() {
                 recipientCountSpan.textContent = `${selectedProfesores.size} destinatario(s)`;
@@ -896,6 +928,7 @@
                     updateRecipientCount();
                 }
                 teacherSearchInput.value = ''; // Clear search input
+                teacherSearchResults.innerHTML = ''; // Clear results list
                 teacherSearchResults.style.display = 'none'; // Hide results
             }
 
@@ -908,7 +941,7 @@
                 updateRecipientCount();
             }
 
-            // --- Teacher Search Logic (AJAX to same JSP) ---
+            // --- Teacher Search Logic (AJAX to this JSP) ---
             let currentSearchTimeout = null;
             teacherSearchInput.addEventListener('keyup', function() {
                 clearTimeout(currentSearchTimeout);
@@ -921,9 +954,8 @@
                 }
 
                 currentSearchTimeout = setTimeout(function() {
-                    // AJAX request to the same JSP, with 'term' parameter
-                    // Make sure the requestType is explicitly set for AJAX calls
-                    fetch('<%= request.getContextPath() %>/INTERFAZ_APODERADO/enviar_mensaje_apoderado.jsp?requestType=searchTeachers&term=' + encodeURIComponent(searchTerm))
+                    // AJAX request to this JSP, with 'term' parameter and requestType
+                    fetch('<%= request.getContextPath() %>/INTERFAZ_APODERADO/enviar_mensaje_apoderado_profesor.jsp?requestType=searchTeachers&term=' + encodeURIComponent(searchTerm))
                         .then(response => {
                             if (!response.ok) {
                                 throw new Error('Error de red o servidor: ' + response.status + ' ' + response.statusText);
@@ -941,7 +973,7 @@
 
                                     listItem.innerHTML = `<i class="fas fa-chalkboard-teacher"></i> ${displayNombreCompleto} <span class="text-muted">(DNI: ${displayDni})</span>`;
                                     // Store full profesor data in dataset for easy retrieval
-                                    listItem.dataset.id_profesor = profesor.id_profesor;
+                                    listItem.dataset.id_profesor = profesor.id_profesor; // Use id_profesor for consistency with server response
                                     listItem.dataset.nombre_completo = profesor.nombre_completo;
                                     listItem.dataset.dni = profesor.dni;
                                     listItem.dataset.email = profesor.email;
@@ -967,7 +999,7 @@
                             }
                         })
                         .catch(error => {
-                            console.error('Error al obtener datos de profesores para el buscador:', error);
+                            console.error('ERROR: Al obtener datos de profesores para el buscador (AJAX):', error);
                             teacherSearchResults.innerHTML = '<li><i class="fas fa-exclamation-triangle text-danger me-2"></i>Error al cargar resultados. Por favor, intente de nuevo.</li>';
                             teacherSearchResults.style.display = 'block';
                         });
@@ -987,7 +1019,7 @@
                     selectedProfesores.clear();
                     selectedRecipientsList.innerHTML = ''; // Clear visible list
 
-                    fetch('<%= request.getContextPath() %>/INTERFAZ_APODERADO/enviar_mensaje_apoderado.jsp?requestType=getAllTeachersOfMyChildCourses')
+                    fetch('<%= request.getContextPath() %>/INTERFAZ_APODERADO/enviar_mensaje_apoderado_profesor.jsp?requestType=getAllTeachersOfMyChildCourses')
                         .then(response => {
                             if (!response.ok) {
                                 throw new Error('Network response was not ok ' + response.statusText);
@@ -1005,7 +1037,7 @@
                             }
                         })
                         .catch(error => {
-                            console.error('Error al seleccionar todos los profesores del hijo:', error);
+                            console.error('ERROR: Al seleccionar todos los profesores del hijo (AJAX):', error);
                             alert('Hubo un error al intentar seleccionar todos los profesores. Verifique la consola para más detalles.');
                         });
                 }
@@ -1025,18 +1057,31 @@
                 if (selectedProfesores.size === 0) {
                     alert("Debes seleccionar al menos un destinatario para enviar el mensaje.");
                     event.preventDefault(); // Prevent form submission
+                    return; // Stop function execution
                 }
-                // If there are recipients, the hidden input 'destinatarios_ids' is already updated by updateRecipientCount()
+                // No need to redeclare asuntoInput and contenidoInput if they are already defined globally or passed as arguments
+                if (asuntoInput.value.trim() === '') {
+                    alert("El asunto del mensaje no puede estar vacío.");
+                    asuntoInput.focus();
+                    event.preventDefault();
+                    return;
+                }
+                if (contenidoInput.value.trim() === '') {
+                    alert("El contenido del mensaje no puede estar vacío.");
+                    contenidoInput.focus();
+                    event.preventDefault();
+                    return;
+                }
+                // If there are recipients and fields are not empty, the hidden input 'destinatarios_ids' is already updated by updateRecipientCount()
             });
 
             // Initial recipient count on page load
             updateRecipientCount();
 
-            // Auto-populate pre-selected teacher if ID is present in the URL
+            // Auto-populate pre-selected teacher if ID, Nombre, and Email are present in the URL
             // This part should be after updateRecipientCount() to ensure the display is correct
-            if (preselectedProfesorId && preselectedProfesorId !== "") {
-                // To fetch full teacher details for pre-population, make another AJAX call if needed.
-                // For simplicity, we can use the passed data directly if it's sufficient.
+            if (preselectedProfesorId && preselectedProfesorId !== "null" && preselectedProfesorId !== "") {
+                // Use decodeURIComponent since names/emails are URL-encoded from previous page
                 addRecipient({
                     id_profesor: parseInt(preselectedProfesorId),
                     nombre_completo: decodeURIComponent(preselectedProfesorNombre),
